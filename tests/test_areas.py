@@ -120,3 +120,60 @@ def test_same_recipients_are_merged_into_one_email(db):
     assert len(plans) == 1 and plans[0][1] is None  # một email, cả hai khu
     subject, text_body, _ = alerts.build_email(plans[0][2], area=None)
     assert "Bếp · Küche" in text_body and "Quầy · Theke" in text_body
+
+
+def test_guess_area_food_lookalikes_and_kitchen_categories():
+    assert areas.guess_area("Schwein") == areas.KITCHEN  # "-wein" nhưng là thịt heo
+    assert areas.guess_area("Hackfleisch Schwein gemischt") == areas.KITCHEN
+    assert areas.guess_area("Shaoxing Reiswein") == areas.KITCHEN  # rượu nấu ăn
+    assert areas.guess_area("Zitronensaft") == areas.KITCHEN
+    assert areas.guess_area("Rượu nấu ăn / Kochwein") == areas.KITCHEN
+    assert areas.guess_area("Bier zum Kochen", category="Gia vị & sốt") == areas.KITCHEN  # nhóm bếp thắng
+    assert areas.guess_area("Pflaumenwein") == areas.BAR
+
+
+def test_migrate_dish_backfill_uses_drink_names(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE ingredients (id INTEGER PRIMARY KEY, name VARCHAR(200), category VARCHAR(100), unit VARCHAR(20))"))
+        conn.execute(text("CREATE TABLE dishes (id INTEGER PRIMARY KEY, code VARCHAR(20), name VARCHAR(200), price FLOAT)"))
+        conn.execute(text("CREATE TABLE recipe_items (id INTEGER PRIMARY KEY, dish_id INTEGER, ingredient_id INTEGER, quantity FLOAT)"))
+        conn.execute(text("INSERT INTO ingredients VALUES (1,'Kaffeebohnen','Khác','kg'),(2,'Milch','Khác','l'),(3,'Schwein','Khác','kg')"))
+        conn.execute(text("INSERT INTO dishes VALUES (1,'','Milchkaffee',3.9),(2,'','Apfelschorle 0,4l',3.5),"
+                          "(3,'','Schweinebraten',14),(4,'','Mì xào',9)"))
+        conn.execute(text("INSERT INTO recipe_items VALUES (1,1,1,0.009),(2,1,2,0.15),(3,3,3,0.2)"))
+    migrate(engine)
+    with engine.connect() as conn:
+        assert dict(conn.execute(text("SELECT name, area FROM ingredients")).all()) == {
+            "Kaffeebohnen": "bar", "Milch": "kitchen", "Schwein": "kitchen"}
+        assert dict(conn.execute(text("SELECT name, area FROM dishes")).all()) == {
+            "Milchkaffee": "bar",  # một thành phần quầy + tên đồ uống
+            "Apfelschorle 0,4l": "bar",  # chưa có định lượng nhưng tên là đồ uống
+            "Schweinebraten": "kitchen", "Mì xào": "kitchen"}
+
+
+def test_par_level_below_minimum_is_ignored(db):
+    beef, coke, water = _two_areas(db)
+    coke.par_level = 10  # cài nhầm: thấp hơn ngưỡng 48
+    db.commit()
+    assert stock.par_target(coke) == 96
+    lines = {l.ingredient.name: l for _, ls in stock.order_suggestions(db, "bar") for l in ls}
+    assert lines["Coca-Cola 0,33l"].urgent and lines["Coca-Cola 0,33l"].quantity >= 48 - 30
+
+
+def test_order_message_uses_german_units():
+    from app.main import _order_message
+
+    beef = Ingredient(name="Thịt bò / Rinderhüfte", unit="kg", pack_unit="", pack_size=1)
+    coke = Ingredient(name="Coca-Cola 0,33l", unit="lon", pack_unit="thùng", pack_size=24)
+    water = Ingredient(name="Nước suối / Mineralwasser", unit="chai", pack_unit="két", pack_size=12)
+    msg = _order_message([
+        stock.OrderLine(coke, 0, 96, 96, 4, True),
+        stock.OrderLine(water, 0, 12, 12, 1, False),
+        stock.OrderLine(beef, 1, 8, 7, None, True),
+    ])
+    assert "4 × Kartons Coca-Cola 0,33l (à 24 Dosen)" in msg
+    assert "1 × Kiste Mineralwasser (à 12 Flaschen)" in msg
+    assert "7 kg Rinderhüfte" in msg
+    assert "thùng" not in msg and "két" not in msg and "lon" not in msg.replace("Kartons", "")

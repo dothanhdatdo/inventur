@@ -38,6 +38,17 @@ DRINK_TOKENS = {
 DRINK_SUFFIXES = ("wasser", "saft", "nektar", "bier", "wein", "schorle", "limonade", "likor", "schnaps", "tee", "kaffee")
 DRINK_PREFIXES = ("kaffee", "cola", "whisk", "vodka", "prosecco", "espresso", "energy")
 DRINK_PHRASES = (" nuoc ngot ", " nuoc suoi ", " ca phe ", " red bull ", " ginger ale ", " coca cola ", " tra sua ")
+# Từ trông giống đồ uống nhưng là đồ bếp: "Schwein" (đuôi -wein), rượu/nước chua để nấu ăn.
+FOOD_TOKENS = {
+    "schwein", "wildschwein", "kochwein", "reiswein", "shaoxing", "mirin", "zitronensaft", "limettensaft",
+    "kokoswasser", "rosenwasser",
+}
+# Nhóm hàng rõ ràng thuộc bếp -> giữ ở bếp dù tên có chữ giống đồ uống.
+KITCHEN_CATEGORY_WORDS = (
+    "thit", "hai san", "rau", "gia vi", "sot", "hang kho", "dong lanh", "bao bi", "fleisch", "fisch", "gemuse",
+    "gewurz", "sosse", "sauce", "trockenware", "tiefkuhl", "verpackung", "kuche", "bep",
+)
+
 # Hàng không phải thực phẩm (thường VAT 19% nhưng thuộc bếp): hộp, túi, găng tay, chất tẩy rửa...
 NONFOOD_WORDS = (
     "box", "menubox", "schale", "beutel", "tute", "folie", "alufolie", "serviette", "handschuh", "reiniger",
@@ -63,9 +74,12 @@ def _tokens(text: str) -> list[str]:
 
 def looks_like_drink(name: str) -> bool:
     plain = _plain(name)
+    tokens = plain.split()
+    if any(t in FOOD_TOKENS or t.endswith("schwein") for t in tokens) or " nau an " in plain:
+        return False
     if any(phrase in plain for phrase in DRINK_PHRASES):
         return True
-    for token in plain.split():
+    for token in tokens:
         if token in DRINK_TOKENS or token in DRINK_SUFFIXES:
             return True
         if any(len(token) > len(sfx) + 2 and token.endswith(sfx) for sfx in DRINK_SUFFIXES):
@@ -88,14 +102,23 @@ def is_drink_category(category: str) -> bool:
     return any(f" {word} " in plain or plain.strip().startswith(word) for word in DRINK_CATEGORY_WORDS)
 
 
+def is_kitchen_category(category: str) -> bool:
+    if category in AREAS[KITCHEN]["categories"]:
+        return True
+    plain = _plain(category)
+    return any(f" {word} " in plain or f" {word}" in plain for word in KITCHEN_CATEGORY_WORDS)
+
+
 def guess_area(name: str = "", category: str = "", vat_rate: float | None = None) -> str:
     """Đoán khu cho hàng mới.
 
-    Thứ tự: nhóm hàng giống đồ uống -> tên giống đồ uống -> hàng không phải thực phẩm (bếp)
+    Thứ tự: nhóm hàng đồ uống -> nhóm hàng bếp -> tên giống đồ uống -> hàng không phải thực phẩm (bếp)
     -> VAT 19% (ở Đức đồ uống chịu 19%, thực phẩm 7%) -> mặc định bếp.
     """
     if category and is_drink_category(category):
         return BAR
+    if category and is_kitchen_category(category):
+        return KITCHEN
     if looks_like_drink(name):
         return BAR
     if looks_like_nonfood(name):

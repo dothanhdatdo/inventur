@@ -245,8 +245,14 @@ def expiring_batches(session: Session, days: int, area: str | None = None) -> li
 
 
 def par_target(ingredient: Ingredient) -> float:
-    """Mức tồn chuẩn để đặt hàng lên tới: par_level, hoặc gấp đôi ngưỡng tối thiểu."""
-    return ingredient.par_level if ingredient.par_level and ingredient.par_level > 0 else ingredient.min_stock * 2
+    """Mức tồn chuẩn để đặt hàng lên tới: par_level, hoặc gấp đôi ngưỡng tối thiểu.
+
+    Mức chuẩn thấp hơn ngưỡng tối thiểu là cài nhầm -> bỏ qua để không đặt thiếu hàng đang dưới ngưỡng.
+    """
+    par = ingredient.par_level or 0
+    if par > 0 and par >= ingredient.min_stock:
+        return par
+    return ingredient.min_stock * 2
 
 
 @dataclass
@@ -267,7 +273,7 @@ def order_suggestions(session: Session, area: str | None = None) -> list[tuple[s
         stock = stocks.get(ing.id, 0.0)
         target = par_target(ing)
         urgent = ing.min_stock > 0 and stock < ing.min_stock
-        below_par = ing.par_level > 0 and stock < ing.par_level
+        below_par = ing.par_level > 0 and stock < target
         if not (urgent or below_par) or target <= stock + EPS:
             continue
         need = target - stock

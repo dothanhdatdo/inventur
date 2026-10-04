@@ -342,7 +342,10 @@ def _fill_ingredient(item: Ingredient, form) -> None:
     item.pack_size = parse_float(form.get("pack_size"), 1.0) or 1.0
     item.min_stock = parse_float(form.get("min_stock"))
     item.par_level = parse_float(form.get("par_level"))
-    item.area = areas.normalize_area(form.get("area"), item.area or areas.KITCHEN)
+    new_area = areas.normalize_area(form.get("area"), item.area or areas.KITCHEN)
+    if item.area and new_area != item.area:
+        item.alert_sent = 0  # chuyển khu -> người nhận cảnh báo của khu mới cũng được báo
+    item.area = new_area
     item.last_price = parse_float(form.get("last_price"), item.last_price or 0.0)
     sup = form.get("supplier_id")
     item.supplier_id = int(sup) if sup else None
@@ -1229,6 +1232,21 @@ def orders_page(request: Request, db: Session = Depends(get_session)):
     return render(request, "orders.html", groups=groups, messages=messages)
 
 
+# Đơn vị tiếng Việt -> tiếng Đức cho tin nhắn đặt hàng gửi nhà cung cấp: (số ít, số nhiều).
+UNITS_DE = {
+    "thùng": ("Karton", "Kartons"), "két": ("Kiste", "Kisten"), "chai": ("Flasche", "Flaschen"),
+    "lon": ("Dose", "Dosen"), "bao": ("Sack", "Säcke"), "gói": ("Packung", "Packungen"),
+    "hộp": ("Schachtel", "Schachteln"), "cái": ("Stück", "Stück"), "quả": ("Stück", "Stück"),
+    "bó": ("Bund", "Bund"), "khay": ("Lage", "Lagen"), "can": ("Kanister", "Kanister"),
+    "kg": ("kg", "kg"), "g": ("g", "g"), "l": ("l", "l"), "ml": ("ml", "ml"),
+}
+
+
+def _unit_de(unit: str, count: float) -> str:
+    one, many = UNITS_DE.get((unit or "").strip().lower(), (unit, unit))
+    return one if abs(count - 1) < 1e-9 else many
+
+
 def _order_message(lines) -> str:
     """Tin nhắn đặt hàng bằng tiếng Đức (gửi NCC qua email/WhatsApp)."""
     rows = []
@@ -1236,7 +1254,10 @@ def _order_message(lines) -> str:
         ing = line.ingredient
         name = ing.name.split(" / ")[-1]  # phần tên tiếng Đức nếu có "Việt / Đức"
         if line.packs:
-            rows.append(f"- {line.packs} × {ing.pack_unit} {name} ({stock.fmt_qty(ing.pack_size)} {ing.unit})")
+            rows.append(
+                f"- {line.packs} × {_unit_de(ing.pack_unit, line.packs)} {name} "
+                f"(à {stock.fmt_qty(ing.pack_size)} {_unit_de(ing.unit, ing.pack_size)})"
+            )
         else:
-            rows.append(f"- {stock.fmt_qty(line.quantity)} {ing.unit} {name}")
+            rows.append(f"- {stock.fmt_qty(line.quantity)} {_unit_de(ing.unit, line.quantity)} {name}")
     return "Guten Tag,\nwir möchten bestellen:\n" + "\n".join(rows) + "\n\nVielen Dank!\nMai Wok"

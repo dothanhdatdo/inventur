@@ -280,7 +280,7 @@ def test_orders_page_and_area_emails_settings(client, db):
     coke.area = "bar"
     db.commit()
     r = client.get("/orders")
-    assert "Großmarkt Breisgau" in r.text and "4 × thùng Coca-Cola 0,33l" in r.text and "wir möchten bestellen" in r.text
+    assert "Großmarkt Breisgau" in r.text and "4 × Kartons Coca-Cola 0,33l" in r.text and "wir möchten bestellen" in r.text
     client.post("/settings/alerts", data={"alert_email": "a@x.de", "alert_email_kitchen": "koch@x.de",
                                           "alert_email_bar": "", "alerts_enabled": "1"})
     assert alerts.alert_recipients(db, "kitchen") == ["koch@x.de"]
@@ -296,3 +296,17 @@ def test_reports_split_by_area(client, db):
     assert "Bếp (Küche) và Quầy (Theke)" in r.text and "Beverage cost" in r.text
     client.get("/area/bar")
     assert client.get("/reports").status_code == 200
+
+
+def test_moving_ingredient_to_other_area_alerts_new_recipient(client, db, monkeypatch):
+    sup, rice, chicken, coke = seed_basic(db)
+    alerts.set_setting(db, "alert_email_bar", "bar@x.de")
+    alerts.check_low_stock(db)  # mọi thứ đang 0 -> coi như đã báo cho bếp
+    db.commit()
+    sent = []
+    monkeypatch.setattr(alerts, "smtp_configured", lambda: True)
+    monkeypatch.setattr(alerts, "send_email", lambda to, subj, text, html: (sent.append(to) or ("sent", "")))
+    monkeypatch.setattr(alerts.threading, "Thread", _SyncThread)
+    client.post(f"/ingredients/{coke.id}/edit", data={"name": coke.name, "unit": "lon", "pack_unit": "thùng",
+                                                      "pack_size": "24", "min_stock": "24", "area": "bar"})
+    assert sent == [["bar@x.de"]]

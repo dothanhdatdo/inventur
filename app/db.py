@@ -279,13 +279,18 @@ def _backfill_areas(conn) -> None:
     for ing_id, name, category in conn.execute(text("SELECT id, name, category FROM ingredients")).all():
         if guess_area(name or "", category or "") == BAR:
             conn.execute(text("UPDATE ingredients SET area = :a WHERE id = :i"), {"a": BAR, "i": ing_id})
-    # Món mà mọi thành phần đều thuộc quầy -> đồ uống của quầy.
+    # Món -> quầy nếu: mọi thành phần thuộc quầy; hoặc tên giống đồ uống và (chưa có định lượng
+    # hoặc có ít nhất một thành phần thuộc quầy, vd. Milchkaffee = cà phê quầy + sữa).
+    from .areas import looks_like_drink
+
     rows = conn.execute(text(
-        "SELECT d.id, MIN(i.area), MAX(i.area), COUNT(i.id) FROM dishes d "
-        "JOIN recipe_items r ON r.dish_id = d.id JOIN ingredients i ON i.id = r.ingredient_id GROUP BY d.id"
-    )).all()
-    for dish_id, lo, hi, count in rows:
-        if count and lo == hi == BAR:
+        "SELECT d.id, d.name, SUM(CASE WHEN i.area = :bar THEN 1 ELSE 0 END), COUNT(i.id) FROM dishes d "
+        "LEFT JOIN recipe_items r ON r.dish_id = d.id LEFT JOIN ingredients i ON i.id = r.ingredient_id GROUP BY d.id, d.name"
+    ), {"bar": BAR}).all()
+    for dish_id, name, bar_count, count in rows:
+        bar_count = bar_count or 0
+        drink_name = looks_like_drink(name or "")
+        if (count and bar_count == count) or (drink_name and (count == 0 or bar_count > 0)):
             conn.execute(text("UPDATE dishes SET area = :a WHERE id = :i"), {"a": BAR, "i": dish_id})
 
 
