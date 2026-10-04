@@ -272,17 +272,25 @@ def migrate(bind=None) -> list[str]:
 
 def _backfill_areas(conn) -> None:
     """Dữ liệu cũ chưa có khu: nhóm/ tên giống đồ uống -> quầy, còn lại -> bếp."""
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
 
     from .areas import BAR, guess_area
 
+    # VAT đã lưu trên dòng hoá đơn giúp nhận ra đồ uống chỉ có tên thương hiệu (vd. "Rothaus Tannenzäpfle" 19 %).
+    vat_by_ingredient = {}
+    if inspect(conn).has_table("invoice_lines"):
+        vat_by_ingredient = dict(conn.execute(text(
+            "SELECT ingredient_id, MAX(vat_rate) FROM invoice_lines WHERE ingredient_id IS NOT NULL GROUP BY ingredient_id"
+        )).all())
     for ing_id, name, category in conn.execute(text("SELECT id, name, category FROM ingredients")).all():
-        if guess_area(name or "", category or "") == BAR:
+        if guess_area(name or "", category or "", vat_by_ingredient.get(ing_id)) == BAR:
             conn.execute(text("UPDATE ingredients SET area = :a WHERE id = :i"), {"a": BAR, "i": ing_id})
     # Món -> quầy nếu: mọi thành phần thuộc quầy; hoặc tên giống đồ uống và (chưa có định lượng
     # hoặc có ít nhất một thành phần thuộc quầy, vd. Milchkaffee = cà phê quầy + sữa).
     from .areas import looks_like_drink
 
+    if not (inspect(conn).has_table("dishes") and inspect(conn).has_table("recipe_items")):
+        return
     rows = conn.execute(text(
         "SELECT d.id, d.name, SUM(CASE WHEN i.area = :bar THEN 1 ELSE 0 END), COUNT(i.id) FROM dishes d "
         "LEFT JOIN recipe_items r ON r.dish_id = d.id LEFT JOIN ingredients i ON i.id = r.ingredient_id GROUP BY d.id, d.name"

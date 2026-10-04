@@ -676,7 +676,7 @@ def invoice_file(invoice_id: int, db: Session = Depends(get_session)):
     return FileResponse(path, media_type=invoice.file_type or None)
 
 
-async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) -> None:
+async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) -> list[Ingredient]:
     form = await request.form()
     sup = form.get("supplier_id", "")
     invoice.supplier_id = int(sup) if sup.isdigit() else None
@@ -688,6 +688,7 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
     invoice.vat = parse_float(form.get("vat"))
     existing = {line.id: line for line in invoice.lines}
     keep: list[InvoiceLine] = []
+    created: list[Ingredient] = []
     for pos, row in enumerate(form.getlist("row")):
         get = lambda field: form.get(f"{field}_{row}", "")  # noqa: E731
         if get("delete"):
@@ -712,6 +713,7 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
         if choice == "new":
             ing = _create_ingredient_from_line(db, line)
             line.ingredient_id = ing.id
+            created.append(ing)
         else:
             line.ingredient_id = int(choice) if choice.isdigit() else None
         keep.append(line)
@@ -720,6 +722,7 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
             invoice.lines.remove(line)
     invoice.subtotal = round(sum(line.line_total for line in invoice.lines), 2)
     invoice.total = round(invoice.subtotal + invoice.vat, 2)
+    return created
 
 
 def _create_ingredient_from_line(db: Session, line: InvoiceLine) -> Ingredient:
@@ -746,8 +749,12 @@ async def invoice_save(request: Request, invoice_id: int, db: Session = Depends(
     if invoice.status == "confirmed":
         flash(request, "Hoá đơn đã nhập kho, không thể sửa.", "error")
         return redirect(f"/invoices/{invoice_id}")
-    await _save_invoice_form(request, db, invoice)
+    created = await _save_invoice_form(request, db, invoice)
     form = await request.form()
+    created_note = (
+        "Nguyên liệu mới: " + ", ".join(f"{i.name} → {areas.AREAS[i.area]['label']}" for i in created)
+        + " (sai khu thì sửa ở trang nguyên liệu)"
+    ) if created else ""
     if form.get("action") == "confirm":
         try:
             notes = invoice_service.confirm(db, invoice)
@@ -759,11 +766,13 @@ async def invoice_save(request: Request, invoice_id: int, db: Session = Depends(
         parts = [f"{areas.AREAS[k]['label']}: {_money(split[k])}" for k in areas.AREA_KEYS if split.get(k)]
         if len(parts) > 1:
             notes.append("Chia theo khu – " + ", ".join(parts))
+        if created_note:
+            notes.append(created_note)
         after_stock_change(request, db)
         flash(request, " · ".join(notes))
         return redirect(f"/invoices/{invoice_id}")
     db.commit()
-    flash(request, "Đã lưu bản nháp")
+    flash(request, "Đã lưu bản nháp" + (" · " + created_note if created_note else ""))
     return redirect(f"/invoices/{invoice_id}")
 
 

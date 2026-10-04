@@ -267,7 +267,7 @@ def test_new_ingredient_from_invoice_guesses_area(client, db):
                      f"unit_raw_{i}": line.unit_raw, f"unit_price_{i}": str(line.unit_price),
                      f"line_total_{i}": str(line.line_total), f"pack_factor_{i}": "1", f"ingredient_id_{i}": "new"})
     r = client.post(f"/invoices/{inv.id}", data={**form, "row": rows}, follow_redirects=True)
-    assert "Chia theo khu" in r.text
+    assert "Chia theo khu" in r.text and "Mangosaft 1l → Quầy" in r.text and "Pak Choi frisch → Bếp" in r.text
     db.expire_all()
     areas_by_name = {i.name: i.area for i in db.scalars(select(Ingredient)).all()}
     assert areas_by_name["Mangosaft 1l"] == "bar" and areas_by_name["Pak Choi frisch"] == "kitchen"

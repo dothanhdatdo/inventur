@@ -57,7 +57,7 @@ FOOD_SUFFIXES = ("salzwasser", "schwein")
 NONFOOD_STEMS = (
     "box", "schale", "beutel", "tute", "folie", "serviett", "handschuh", "reinig", "spul", "putz", "stabchen",
     "gabel", "loffel", "messer", "besteck", "deckel", "mullsack", "mullsacke", "sack", "tucher", "tuch",
-    "papier", "rolle", "kerze", "schwamm", "desinfekt", "seife", "teller", "becher", "strohhalm", "trinkhalm",
+    "papier", "rolle", "propan", "gasflasche", "kerze", "schwamm", "desinfekt", "seife", "teller", "becher", "strohhalm", "trinkhalm",
 )
 NONFOOD_TOKENS = {"hop", "tui", "gang", "khan", "giay", "ong", "hut"}
 # Danh mục cũ (trước khi có khu vực) được xem là đồ uống.

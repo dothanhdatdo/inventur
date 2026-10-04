@@ -212,3 +212,16 @@ def test_par_ignored_flag(db):
     assert stock.par_ignored(coke) and stock.par_target(coke) == 96
     coke.par_level = 0
     assert not stock.par_ignored(coke)
+
+
+def test_migrate_uses_invoice_vat_for_brand_named_drinks(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE ingredients (id INTEGER PRIMARY KEY, name VARCHAR(200), category VARCHAR(100), unit VARCHAR(20))"))
+        conn.execute(text("CREATE TABLE invoice_lines (id INTEGER PRIMARY KEY, invoice_id INTEGER, ingredient_id INTEGER, vat_rate FLOAT)"))
+        conn.execute(text("INSERT INTO ingredients VALUES (1,'0,33 MW ROTHAUS TANNENZAEPFLE','Mới từ hoá đơn','chai'),"
+                          "(2,'Bambussprossen in Wasser 540g','Mới từ hoá đơn','cái'),(3,'Servietten 1000 Stk','Mới từ hoá đơn','cái')"))
+        conn.execute(text("INSERT INTO invoice_lines VALUES (1,1,1,19),(2,1,2,7),(3,1,3,19)"))
+    migrate(engine)
+    with engine.connect() as conn:
+        assert dict(conn.execute(text("SELECT id, area FROM ingredients")).all()) == {1: "bar", 2: "kitchen", 3: "kitchen"}
