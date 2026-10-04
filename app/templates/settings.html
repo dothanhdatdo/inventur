@@ -104,7 +104,7 @@
       {% for i in items %}{% set s = stocks.get(i.id, 0) %}
       <tr class="{{ 'is-low' if i.min_stock > 0 and s < i.min_stock }}"><td>{{ i.name }}</td><td class="num">{{ s|qty }} {{ i.unit }}</td>
         <td class="num"><input class="qty-input" name="min_{{ i.id }}" inputmode="decimal" value="{{ i.min_stock|qty }}" aria-label="Ngưỡng {{ i.name }}"> {{ i.unit }}</td>
-        <td class="num"><input class="qty-input" name="par_{{ i.id }}" inputmode="decimal" value="{{ i.par_level|qty if i.par_level else '' }}" placeholder="{{ (i.min_stock * 2)|qty }}" aria-label="Mức tồn chuẩn {{ i.name }}"> {{ i.unit }}</td>
+        <td class="num"><input class="qty-input" name="par_{{ i.id }}" inputmode="decimal" value="{{ i.par_level|qty if i.par_level else '' }}" placeholder="{{ (i.min_stock * 2)|qty }}" aria-label="Mức tồn chuẩn {{ i.name }}"> {{ i.unit }}{% if par_ignored(i) %}<div class="small" style="color:var(--warn)">thấp hơn ngưỡng → dùng {{ par_target(i)|qty }}</div>{% endif %}</td>
         <td>{% if i.min_stock > 0 and s < i.min_stock %}<span class="pill pill-warn">Sắp hết</span>{% endif %}</td></tr>
       {% endfor %}
     {% endfor %}</tbody>

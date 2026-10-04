@@ -49,11 +49,17 @@ KITCHEN_CATEGORY_WORDS = (
     "gewurz", "sosse", "sauce", "trockenware", "tiefkuhl", "verpackung", "kuche", "bep",
 )
 
+# Đồ hộp/đồ ngâm: "Thunfisch in Wasser", "Ananas in Saft", "Mais in Salzwasser" là đồ bếp.
+FOOD_PHRASES = (" in wasser ", " in saft ", " in eigenem saft ", " im eigenen saft ", " in salzlake ", " in lake ")
+FOOD_SUFFIXES = ("salzwasser", "schwein")
 # Hàng không phải thực phẩm (thường VAT 19% nhưng thuộc bếp): hộp, túi, găng tay, chất tẩy rửa...
-NONFOOD_WORDS = (
-    "box", "menubox", "schale", "beutel", "tute", "folie", "alufolie", "serviette", "handschuh", "reiniger",
-    "spulmittel", "putz", "stabchen", "gabel", "loffel", "hop", "tui", "gang", "deckel",
+# So theo gốc từ để bắt cả số nhiều / từ ghép: Servietten, Handschuhe, Müllsäcke, Allzweckreiniger...
+NONFOOD_STEMS = (
+    "box", "schale", "beutel", "tute", "folie", "serviett", "handschuh", "reinig", "spul", "putz", "stabchen",
+    "gabel", "loffel", "messer", "besteck", "deckel", "mullsack", "mullsacke", "sack", "tucher", "tuch",
+    "papier", "rolle", "kerze", "schwamm", "desinfekt", "seife", "teller", "becher", "strohhalm", "trinkhalm",
 )
+NONFOOD_TOKENS = {"hop", "tui", "gang", "khan", "giay", "ong", "hut"}
 # Danh mục cũ (trước khi có khu vực) được xem là đồ uống.
 DRINK_CATEGORY_WORDS = (
     "do uong", "getrank", "drink", "bia", "bier", "ruou", "wein", "softdrink", "softdrinks", "nuoc ngot", "nuoc ep",
@@ -72,11 +78,19 @@ def _tokens(text: str) -> list[str]:
     return _plain(text).split()
 
 
+def looks_like_food_exception(name: str) -> bool:
+    """Tên có chữ giống đồ uống nhưng chắc chắn là đồ bếp (thịt heo, rượu nấu ăn, đồ hộp ngâm nước...)."""
+    plain = _plain(name)
+    if " nau an " in plain or any(phrase in plain for phrase in FOOD_PHRASES):
+        return True
+    return any(t in FOOD_TOKENS or t.endswith(FOOD_SUFFIXES) for t in plain.split())
+
+
 def looks_like_drink(name: str) -> bool:
+    if looks_like_food_exception(name):
+        return False
     plain = _plain(name)
     tokens = plain.split()
-    if any(t in FOOD_TOKENS or t.endswith("schwein") for t in tokens) or " nau an " in plain:
-        return False
     if any(phrase in plain for phrase in DRINK_PHRASES):
         return True
     for token in tokens:
@@ -90,7 +104,7 @@ def looks_like_drink(name: str) -> bool:
 
 
 def looks_like_nonfood(name: str) -> bool:
-    return any(t in NONFOOD_WORDS or t.endswith(("box", "beutel", "folie", "schale")) for t in _tokens(name))
+    return any(t in NONFOOD_TOKENS or any(stem in t for stem in NONFOOD_STEMS) for t in _tokens(name))
 
 
 def normalize_area(value: str | None, default: str = KITCHEN) -> str:
@@ -118,6 +132,8 @@ def guess_area(name: str = "", category: str = "", vat_rate: float | None = None
     if category and is_drink_category(category):
         return BAR
     if category and is_kitchen_category(category):
+        return KITCHEN
+    if looks_like_food_exception(name):  # trước bước VAT: rượu nấu ăn chịu VAT 19% nhưng vẫn là đồ bếp
         return KITCHEN
     if looks_like_drink(name):
         return BAR

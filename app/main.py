@@ -94,6 +94,8 @@ templates.env.globals["ocr_labels"] = {
 templates.env.globals["today"] = date.today
 templates.env.globals["AREAS"] = areas.AREAS
 templates.env.globals["area_label"] = areas.label
+templates.env.globals["par_target"] = stock.par_target
+templates.env.globals["par_ignored"] = stock.par_ignored
 
 
 # ---------------------------------------------------------------- tiện ích

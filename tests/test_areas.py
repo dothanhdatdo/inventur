@@ -177,3 +177,38 @@ def test_order_message_uses_german_units():
     assert "1 × Kiste Mineralwasser (à 12 Flaschen)" in msg
     assert "7 kg Rinderhüfte" in msg
     assert "thùng" not in msg and "két" not in msg and "lon" not in msg.replace("Kartons", "")
+
+
+def test_guess_area_canned_food_nonfood_plurals_and_cooking_alcohol_with_vat():
+    for name in ("Thunfisch in Wasser", "Ananas in Saft 3kg", "Mais in Salzwasser", "Bambussprossen in Wasser"):
+        assert areas.guess_area(name, vat_rate=7) == areas.KITCHEN, name
+    for name in ("Servietten 3-lagig", "Einmalhandschuhe Nitril", "Müllsäcke 120l", "Allzweckreiniger 5l", "Küchenrolle 8 Rollen"):
+        assert areas.guess_area(name, vat_rate=19) == areas.KITCHEN, name
+    assert areas.guess_area("Shaoxing Kochwein 0,75l", vat_rate=19) == areas.KITCHEN
+    assert areas.guess_area("Zitronensaft 1l", vat_rate=19) == areas.KITCHEN
+    assert areas.guess_area("Orangensaft 1l", vat_rate=19) == areas.BAR
+    assert areas.guess_area("Mineralwasser 12x0,75l", vat_rate=19) == areas.BAR
+
+
+def test_order_suggestions_never_fractional_for_countable_units(db):
+    paper = Ingredient(name="Bánh tráng / Reispapier", unit="gói", min_stock=8, area="kitchen", last_price=1.6)
+    herbs = Ingredient(name="Rau mùi / Koriander", unit="bó", min_stock=8, par_level=16, area="kitchen", last_price=0.85)
+    beef = Ingredient(name="Thịt bò", unit="kg", min_stock=4, area="kitchen", last_price=18)
+    db.add_all([paper, herbs, beef])
+    db.flush()
+    stock.receive(db, paper, 3.3, 1.6)
+    stock.receive(db, herbs, 5.7, 0.85)
+    stock.receive(db, beef, 3.12, 18)
+    db.commit()
+    lines = {l.ingredient.name: l for _, ls in stock.order_suggestions(db, "kitchen") for l in ls}
+    assert lines["Bánh tráng / Reispapier"].quantity == 13  # 16 - 3,3 = 12,7 -> 13 gói
+    assert lines["Rau mùi / Koriander"].quantity == 11  # 16 - 5,7 = 10,3 -> 11 bó
+    assert lines["Thịt bò"].quantity == 4.9  # 8 - 3,12 = 4,88 -> 4,9 kg
+
+
+def test_par_ignored_flag(db):
+    beef, coke, water = _two_areas(db)
+    coke.par_level = 10
+    assert stock.par_ignored(coke) and stock.par_target(coke) == 96
+    coke.par_level = 0
+    assert not stock.par_ignored(coke)

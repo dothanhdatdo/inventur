@@ -244,6 +244,14 @@ def expiring_batches(session: Session, days: int, area: str | None = None) -> li
     return list(session.scalars(query.order_by(Batch.expiry_date)).all())
 
 
+MEASURE_UNITS = {"kg", "g", "l", "ml"}
+
+
+def par_ignored(ingredient: Ingredient) -> bool:
+    """Mức tồn chuẩn đã nhập nhưng thấp hơn ngưỡng tối thiểu -> không dùng."""
+    return bool(ingredient.par_level and 0 < ingredient.par_level < ingredient.min_stock)
+
+
 def par_target(ingredient: Ingredient) -> float:
     """Mức tồn chuẩn để đặt hàng lên tới: par_level, hoặc gấp đôi ngưỡng tối thiểu.
 
@@ -281,6 +289,10 @@ def order_suggestions(session: Session, area: str | None = None) -> list[tuple[s
         if ing.pack_unit and ing.pack_size and ing.pack_size > 0:
             packs = max(1, math.ceil(need / ing.pack_size - 1e-9))
             need = packs * ing.pack_size
+        elif (ing.unit or "").strip().lower() not in MEASURE_UNITS:
+            need = max(1, math.ceil(need - 1e-9))  # hàng đếm theo cái/gói/bó: không đặt số lẻ
+        else:
+            need = math.ceil(need * 10 - 1e-9) / 10  # kg, l: làm tròn lên 0,1
         groups.setdefault(ing.supplier.name if ing.supplier else "Chưa có nhà cung cấp", []).append(
             OrderLine(ing, stock, target, round(need, 3), packs, urgent)
         )
