@@ -30,6 +30,8 @@ APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 SEED_DEMO = os.getenv("SEED_DEMO", "1") == "1"
+# Nhập dữ liệu thật một lần (app/imports), vd. hoá đơn METRO lấy từ email.
+APPLY_IMPORTS = os.getenv("APPLY_IMPORTS", "1") == "1"
 CURRENCY = os.getenv("CURRENCY", "€")
 EXPIRY_WARNING_DAYS = int(os.getenv("EXPIRY_WARNING_DAYS", "3"))
 

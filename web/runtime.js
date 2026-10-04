@@ -147,7 +147,10 @@ async function navigate(method, route, body, contentType, push = true) {
         new URL(res.headers.location, 'https://inventur.local').search;
       res = await request('GET', route, null, null);
     }
+    // Lưu xuống IndexedDB sau mọi request (cả GET: vd. thông báo một lần được đánh dấu đã xem).
+    // IDBFS chỉ ghi file đã thay đổi nên GET không đổi dữ liệu gần như không tốn gì.
     if (method !== 'GET') await syncFS(false);
+    else syncFS(false);
     const type = res.headers['content-type'] || '';
     if (type.startsWith('text/html')) {
       render(new TextDecoder().decode(res.body), route, push || method !== 'GET' || hops > 0);

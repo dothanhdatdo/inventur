@@ -35,6 +35,7 @@ from .db import (
     get_session,
     init_db,
 )
+from .imports import NOTICE_KEY, apply_pending as apply_imports
 from .seed import seed
 from .services import invoices as invoice_service
 from .services import alerts, matching, ocr, stock
@@ -56,6 +57,8 @@ async def lifespan(_app: FastAPI):
     if config.SEED_DEMO:
         with SessionLocal() as session:
             seed(session)
+    with SessionLocal() as session:
+        apply_imports(session)
     yield
 
 
@@ -86,6 +89,7 @@ templates.env.filters["vdate"] = _date
 templates.env.globals["movement_labels"] = MOVEMENT_LABELS
 templates.env.globals["ocr_labels"] = {
     "anthropic": "Claude", "openai": "GPT-4o", "gemini": "Gemini", "demo": "Demo", "manual": "Thủ công",
+    "email": "Từ email",
 }
 templates.env.globals["today"] = date.today
 templates.env.globals["AREAS"] = areas.AREAS
@@ -99,6 +103,12 @@ def render(request: Request, name: str, **ctx):
     ctx.setdefault("flash", request.session.pop("flash", None))
     ctx.setdefault("alert_flash", request.session.pop("alert_flash", None))
     with SessionLocal() as session:
+        notice = alerts.get_setting(session, NOTICE_KEY)
+        if notice:  # thông báo một lần sau khi nhập dữ liệu (app/imports)
+            alerts.set_setting(session, NOTICE_KEY, "")
+            session.commit()
+            if not ctx.get("alert_flash"):
+                ctx["alert_flash"] = notice
         ocr_settings = ocr.get_settings(session)
         ctx["ocr_provider"] = ocr.active_provider(ocr_settings)
         ctx["ocr_ready"] = ocr.provider_ready(ocr_settings)
@@ -1140,6 +1150,8 @@ async def settings_restore(request: Request, file: UploadFile = File(None)):
     engine.dispose()
     db_path.write_bytes(content)
     init_db()
+    with SessionLocal() as session:
+        apply_imports(session)
     flash(request, "Đã khôi phục dữ liệu từ bản sao lưu")
     return redirect("/")
 
@@ -1155,7 +1167,9 @@ def settings_reset(request: Request):
     init_db()
     with SessionLocal() as session:
         seed(session)
-    flash(request, "Đã tạo lại dữ liệu demo")
+    with SessionLocal() as session:
+        apply_imports(session)
+    flash(request, "Đã tạo lại dữ liệu demo (đồ uống: hàng thật từ hoá đơn METRO)")
     return redirect("/")
 
 

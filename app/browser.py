@@ -21,6 +21,7 @@ anyio.to_thread.run_sync = _run_sync
 from . import config  # noqa: E402
 from .db import SessionLocal, init_db  # noqa: E402
 from .main import app  # noqa: E402
+from .imports import apply_pending as apply_imports  # noqa: E402
 from .seed import seed  # noqa: E402
 from .services import alerts  # noqa: E402
 
@@ -30,6 +31,8 @@ def startup() -> None:
     if config.SEED_DEMO:
         with SessionLocal() as session:
             seed(session)
+    with SessionLocal() as session:
+        apply_imports(session)
 
 
 async def handle(method: str, path: str, query: str, headers: list, body: bytes | None) -> dict:

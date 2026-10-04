@@ -8,6 +8,7 @@ _tmp = tempfile.mkdtemp(prefix="inv-test-")
 os.environ.update(
     DATA_DIR=_tmp,
     SEED_DEMO="0",
+    APPLY_IMPORTS="0",
     OCR_PROVIDER="demo",
     SMTP_HOST="",
     APP_PASSWORD="",

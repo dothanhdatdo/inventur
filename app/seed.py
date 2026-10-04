@@ -15,7 +15,6 @@ SUPPLIERS = [
     ("Großmarkt Breisgau", "+49 761 000000", "bestellung@grossmarkt.example", "Thịt, rau tươi, đồ uống"),
     ("Asia Großhandel Süd", "+49 721 000000", "order@asia-sued.example", "Hàng khô châu Á"),
     ("Frischemarkt Müller", "+49 761 111111", "", "Rau thơm, giá đỗ – giao mỗi sáng"),
-    ("Getränke Breisgau", "+49 761 222222", "bestellung@getraenke.example", "Đồ uống cho quầy – giao thứ Năm"),
 ]
 
 # key, tên, nhóm, đơn vị, đơn vị mua, quy đổi, tồn tối thiểu, giá/đơn vị, NCC,
@@ -40,21 +39,11 @@ INGREDIENTS = [
     ("coconut", "Nước cốt dừa / Kokosmilch", "Gia vị & sốt", "l", "lon", 0.4, 3, 3.10, 1, ("Kokosmilch Aroy-D 400ml", "Dose", 0.4), 30, None),
     ("oil", "Dầu ăn / Rapsöl", "Gia vị & sốt", "l", "can", 10, 10, 1.90, 0, ("Rapsöl 10l Kanister", "Stk", 10), 1, None),
     ("box", "Hộp mang về / Takeaway-Box", "Bao bì", "cái", "thùng", 300, 200, 0.18, 0, ("Menübox 1-geteilt 300 Stk", "Karton", 300), 1, None),
-    # ---- Quầy / Theke (đồ uống)
-    ("coke", "Coca-Cola 0,33l", "Nước ngọt / Softdrinks", "lon", "thùng", 24, 48, 0.72, 3, ("Coca-Cola 24x0,33l Dose", "Karton", 24), 6, None),
-    ("fanta", "Fanta Orange 0,33l", "Nước ngọt / Softdrinks", "lon", "thùng", 24, 24, 0.70, 3, ("Fanta Orange 24x0,33l Dose", "Karton", 24), 2, None),
-    ("water", "Nước suối / Mineralwasser 0,75l", "Nước / Wasser", "chai", "két", 12, 24, 0.45, 3, ("Mineralwasser classic 12x0,75l Glas", "Kiste", 12), 4, None),
-    ("juice", "Nước ép xoài / Mangosaft", "Nước ép / Säfte", "l", "", 1, 3, 2.20, 1, ("Mangosaft 1l", "Fl", 1), 6, None),
-    ("beer", "Bia Saigon 0,33l", "Bia / Bier", "chai", "thùng", 24, 24, 1.10, 1, ("Bia Saigon Export 24x0,33l", "Kiste", 24), 2, None),
-    ("wine", "Rượu vang trắng / Weißwein Riesling", "Rượu vang / Wein", "l", "chai", 0.75, 3, 6.50, 3, ("Riesling trocken 0,75l", "Fl", 0.75), 8, None),
-    ("plumwine", "Rượu mận / Pflaumenwein", "Rượu vang / Wein", "l", "chai", 0.75, 1.5, 8.00, 1, ("Choya Pflaumenwein 0,75l", "Fl", 0.75), 4, None),
-    ("tea", "Trà nhài / Jasmintee", "Cà phê & trà / Kaffee & Tee", "kg", "gói", 0.5, 0.5, 18.00, 1, ("Jasmintee lose 500g", "Pck", 0.5), 1, None),
-    ("coffee", "Cà phê hạt / Kaffeebohnen", "Cà phê & trà / Kaffee & Tee", "kg", "gói", 1, 1, 16.00, 0, ("Kaffeebohnen Espresso 1kg", "Pck", 1), 1, None),
-    ("milk", "Sữa / Vollmilch 3,5%", "Quầy khác", "l", "", 1, 3, 1.10, 0, ("Frische Vollmilch 3,5% 1l", "Stk", 1), 6, 8),
 ]
 
 # Mức tồn chuẩn (đặt hàng lên tới mức này) cho vài mặt hàng; còn lại = gấp đôi ngưỡng.
-PAR_LEVELS = {"coke": 96, "water": 48, "beer": 48, "rice": 54, "box": 600}
+# Đồ uống của quầy không còn là dữ liệu mẫu: lấy từ hoá đơn METRO thật (app/imports).
+PAR_LEVELS = {"rice": 54, "box": 600}
 
 DISHES = [
     ("D20", "Phở bò", 14.90, {"pho": 0.15, "beef": 0.10, "sprouts": 0.05, "coriander": 0.1, "onion": 0.02, "fishsauce": 0.01, "box": 1}),
@@ -63,26 +52,12 @@ DISHES = [
     ("L4", "Sommerrolle", 8.50, {"paper": 0.1, "shrimp": 0.08, "bun": 0.05, "coriander": 0.1}),
     ("L5", "Nem", 5.50, {"paper": 0.05, "shrimp": 0.03, "beef": 0.03, "bun": 0.02, "oil": 0.05, "fishsauce": 0.01}),
     ("D31", "Thai Curry mit Hähnchen", 13.90, {"chicken": 0.15, "coconut": 0.2, "basil": 0.2, "rice": 0.15, "box": 1}),
-    # ---- Đồ uống bán ở quầy
-    ("G1", "Coca-Cola 0,33l", 3.50, {"coke": 1}),
-    ("G2", "Fanta 0,33l", 3.50, {"fanta": 1}),
-    ("G3", "Mineralwasser 0,75l", 5.50, {"water": 1}),
-    ("G4", "Mangosaft 0,3l", 3.90, {"juice": 0.3}),
-    ("G5", "Bia Saigon 0,33l", 4.50, {"beer": 1}),
-    ("G6", "Weißwein 0,2l", 6.50, {"wine": 0.2}),
-    ("G7", "Pflaumenwein 0,1l", 4.50, {"plumwine": 0.1}),
-    ("G8", "Jasmintee (Kännchen)", 3.90, {"tea": 0.008}),
-    ("G9", "Espresso", 2.50, {"coffee": 0.009}),
-    ("G10", "Cà phê sữa / Milchkaffee", 3.90, {"coffee": 0.009, "milk": 0.15}),
 ]
 
-DAILY_SALES = {
-    "D20": 9, "L6": 12, "L7": 6, "L4": 4, "L5": 6, "D31": 6,
-    "G1": 16, "G2": 6, "G3": 8, "G4": 4, "G5": 10, "G6": 4, "G7": 3, "G8": 5, "G9": 6, "G10": 5,
-}
+DAILY_SALES = {"D20": 9, "L6": 12, "L7": 6, "L4": 4, "L5": 6, "D31": 6}
 WEEKEND_BOOST = 1.3
 # Tuần cuối đặt thiếu các mặt hàng này -> dashboard có cảnh báo sắp hết.
-SKIP_LAST_WEEK = {"shrimp", "pho", "coke", "sprouts", "box", "water", "milk"}
+SKIP_LAST_WEEK = {"shrimp", "pho", "sprouts", "box"}
 
 
 def weekly_usage(key: str) -> float:
@@ -189,7 +164,7 @@ def _seed_invoice(session, supplier, sup_idx, week, when, ings, meta, rnd):
             InvoiceLine(
                 position=pos, raw_name=raw_name, quantity=qty, unit_raw=unit_raw,
                 unit_price=line_unit_price, line_total=round(qty * line_unit_price, 2),
-                vat_rate=19 if ings[key].area == BAR and key != "milk" else 7,
+                vat_rate=19 if ings[key].area == BAR else 7,
                 ingredient_id=ings[key].id, pack_factor=factor,
                 expiry_date=(when.date() + timedelta(days=shelf)) if shelf else None,
             )
