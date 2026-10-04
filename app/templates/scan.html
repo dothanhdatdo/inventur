@@ -5,7 +5,7 @@
 <div class="choice-grid">
   <form class="card" method="post" action="/invoices/scan" enctype="multipart/form-data" id="scanForm">
     <div class="card-head"><h2>📷 Quét hoá đơn bằng AI</h2>
-      {% if ocr_provider == 'demo' %}<span class="pill pill-warn">Chế độ demo</span>{% else %}<span class="pill pill-ok">AI sẵn sàng</span>{% endif %}</div>
+      {% if ocr_provider == 'demo' %}<span class="pill pill-warn">Chế độ demo</span>{% elif not ocr_ready %}<span class="pill pill-danger">Thiếu API key</span>{% else %}<span class="pill pill-ok">AI sẵn sàng</span>{% endif %}</div>
     <label class="dropzone" id="dropzone">
       <input type="file" name="file" id="fileInput" accept="image/*,application/pdf" capture="environment" required>
       <div class="big">🧾</div>
@@ -15,8 +15,10 @@
       <img class="preview-img" id="previewImg" alt="Xem trước hoá đơn">
     </label>
     <div class="form-actions"><button class="btn btn-primary btn-lg" type="submit" id="scanBtn">Đọc hoá đơn</button></div>
-    {% if ocr_provider == 'demo' %}
-    <p class="hint">Chưa có API key AI ({% if browser_mode %}nhập ở <a href="/settings">Cài đặt</a>{% else %}<code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> hoặc trang <a href="/settings">Cài đặt</a>{% endif %}): ảnh vẫn được lưu nhưng dữ liệu là hoá đơn mẫu, để bạn thử quy trình duyệt. Có thể dùng <a href="/static/sample-invoice.png" download>ảnh hoá đơn mẫu</a>.</p>
+    {% if ocr_provider != 'demo' and not ocr_ready %}
+    <p class="hint">Đã chọn {{ ocr_labels.get(ocr_provider, ocr_provider) }} nhưng chưa nhập API key: hãy dán key ở <a href="/settings">Cài đặt</a>. Lấy key Gemini miễn phí tại aistudio.google.com/apikey.</p>
+    {% elif ocr_provider == 'demo' %}
+    <p class="hint">Chưa có API key AI ({% if browser_mode %}nhập ở <a href="/settings">Cài đặt</a>{% else %}<code>GEMINI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> hoặc trang <a href="/settings">Cài đặt</a>{% endif %}): ảnh vẫn được lưu nhưng dữ liệu là hoá đơn mẫu, để bạn thử quy trình duyệt. <strong>Muốn đọc hoá đơn thật miễn phí: dùng Google Gemini</strong> (hướng dẫn ở trang Cài đặt). Có thể dùng <a href="/static/sample-invoice.png" download>ảnh hoá đơn mẫu</a>.</p>
     {% endif %}
   </form>
 

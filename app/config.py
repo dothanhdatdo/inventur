@@ -14,12 +14,16 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'inventory.db'}
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", DATA_DIR / "uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# OCR: auto | anthropic | openai | demo
+# OCR: auto | anthropic | openai | gemini | demo
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "auto").lower()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+# Google Gemini có gói API miễn phí (giới hạn lượt/ngày). Key lấy tại https://aistudio.google.com/apikey
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# "gemini-flash-latest" là tên gọi tắt luôn trỏ tới bản Gemini Flash mới nhất.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 # Đặt APP_PASSWORD để bật đăng nhập (nên bật khi deploy công khai).
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")

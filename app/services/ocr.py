@@ -1,9 +1,10 @@
-"""Bóc tách dữ liệu hoá đơn bằng AI (Claude hoặc GPT-4o), có chế độ demo khi chưa có API key."""
+"""Bóc tách dữ liệu hoá đơn bằng AI (Claude, GPT-4o hoặc Gemini), có chế độ demo khi chưa có API key."""
 from __future__ import annotations
 
 import base64
 import json
 import re
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -89,7 +90,19 @@ def get_settings(session=None) -> dict:
         "anthropic_model": stored.get("ocr_anthropic_model") or config.ANTHROPIC_MODEL,
         "openai_key": stored.get("ocr_openai_key") or config.OPENAI_API_KEY,
         "openai_model": stored.get("ocr_openai_model") or config.OPENAI_MODEL,
+        "gemini_key": stored.get("ocr_gemini_key") or config.GEMINI_API_KEY,
+        "gemini_model": stored.get("ocr_gemini_model") or config.GEMINI_MODEL,
     }
+
+
+PROVIDER_KEYS = {"anthropic": "anthropic_key", "openai": "openai_key", "gemini": "gemini_key"}
+
+
+def provider_ready(settings: dict | None = None) -> bool:
+    """AI đã sẵn sàng đọc hoá đơn thật chưa (nhà cung cấp đã chọn có API key)."""
+    settings = settings or get_settings()
+    key_field = PROVIDER_KEYS.get(active_provider(settings))
+    return bool(key_field and settings[key_field])
 
 
 def active_provider(settings: dict | None = None) -> str:
@@ -100,6 +113,8 @@ def active_provider(settings: dict | None = None) -> str:
             return "anthropic"
         if settings["openai_key"]:
             return "openai"
+        if settings["gemini_key"]:
+            return "gemini"
         return "demo"
     return provider
 
@@ -111,6 +126,8 @@ async def extract_invoice(content: bytes, media_type: str, settings: dict | None
         data = await _call_anthropic(content, media_type, settings)
     elif provider == "openai":
         data = await _call_openai(content, media_type, settings)
+    elif provider == "gemini":
+        data = await _call_gemini(content, media_type, settings)
     else:
         data = json.loads(json.dumps(DEMO_RESULT))
         data["invoice_date"] = date.today().isoformat()
@@ -195,6 +212,71 @@ async def _call_openai(content: bytes, media_type: str, settings: dict) -> dict:
     if status != 200:
         raise OcrError(f"OpenAI API lỗi {status}: {body[:300]}")
     return _parse_json(json.loads(body)["choices"][0]["message"]["content"])
+
+
+async def _call_gemini(content: bytes, media_type: str, settings: dict) -> dict:
+    """Google Gemini API (generateContent). Có gói miễn phí; đọc được cả ảnh và PDF."""
+    if not settings["gemini_key"]:
+        raise OcrError("Thiếu Gemini API key")
+    model = (settings["gemini_model"] or config.GEMINI_MODEL).strip().removeprefix("models/")
+    b64 = base64.standard_b64encode(content).decode()
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"inline_data": {"mime_type": media_type, "data": b64}},
+                    {"text": PROMPT},
+                ],
+            }
+        ],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+    }
+    status, body = await _post_json(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent",
+        {"x-goog-api-key": settings["gemini_key"]},
+        payload,
+    )
+    if status == 429:
+        message = _google_error_message(body)
+        if "limit: 0" in message:
+            raise OcrError(
+                f"Model Gemini “{model}” không có lượt miễn phí cho key này. "
+                "Đổi ô Model Gemini trong Cài đặt về gemini-flash-latest"
+            )
+        raise OcrError(
+            "Gemini báo đã dùng hết lượt miễn phí (giới hạn theo phút hoặc theo ngày). Đợi một lúc rồi thử lại"
+            + (f" – Google: {message[:200]}" if message else "")
+        )
+    if status in (400, 401, 403) and ("API_KEY" in body or "API key" in body or "PERMISSION_DENIED" in body):
+        raise OcrError(f"Gemini API key không hợp lệ hoặc chưa được bật ({status}). Kiểm tra lại key trong Cài đặt")
+    if status == 404:
+        raise OcrError(f"Không tìm thấy model Gemini “{model}”. Sửa tên model trong Cài đặt (vd. gemini-flash-latest)")
+    if status != 200:
+        raise OcrError(f"Gemini API lỗi {status}: {body[:300]}")
+    data = json.loads(body)
+    candidates = data.get("candidates") or []
+    if not candidates:
+        reason = (data.get("promptFeedback") or {}).get("blockReason", "không có kết quả")
+        raise OcrError(f"Gemini không trả về kết quả ({reason})")
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    finish = candidates[0].get("finishReason") or "STOP"
+    if not text:
+        raise OcrError(f"Gemini không trả về nội dung ({finish})")
+    try:
+        return _parse_json(text)
+    except OcrError:
+        if finish != "STOP":
+            raise OcrError(f"Gemini dừng giữa chừng ({finish}), kết quả không đầy đủ. Thử chụp lại ảnh rõ hơn") from None
+        raise
+
+
+def _google_error_message(body: str) -> str:
+    try:
+        return str((json.loads(body).get("error") or {}).get("message") or "")
+    except (ValueError, AttributeError):
+        return ""
 
 
 def _parse_json(text: str) -> dict:

@@ -150,3 +150,61 @@ def test_login_rejects_external_redirect(monkeypatch, client, db):
     monkeypatch.setattr(config, "APP_PASSWORD", "pw")
     r = client.post("/login", data={"password": "pw", "next": "//evil.example"}, follow_redirects=False)
     assert r.headers["location"] == "/"
+
+
+def test_gemini_settings_and_scan(client, db, monkeypatch):
+    import json as _json
+
+    from app.services import ocr
+
+    sup, rice, chicken, coke = seed_basic(db)
+    r = client.post("/settings/ocr", data={"ocr_provider": "gemini", "ocr_gemini_key": "AIza-test",
+                                           "ocr_gemini_model": "gemini-flash-latest"}, follow_redirects=True)
+    assert "đang dùng: Gemini" in r.text
+    assert "AIza-test" not in r.text  # key không bao giờ hiện lại trên trang
+    settings = ocr.get_settings(db)
+    assert settings["gemini_key"] == "AIza-test" and ocr.active_provider(settings) == "gemini"
+
+    async def fake(url, headers, payload):
+        assert headers["x-goog-api-key"] == "AIza-test"
+        result = {"supplier": "Großmarkt Breisgau", "invoice_date": "01.10.2026",
+                  "lines": [{"name": "Hähnchenbrustfilet frisch", "quantity": "5,5", "unit": "kg",
+                             "unit_price": "8,99", "total": "49,45", "vat_rate": 7}]}
+        return 200, _json.dumps({"candidates": [{"content": {"parts": [{"text": _json.dumps(result)}]}}]})
+
+    monkeypatch.setattr(ocr, "_post_json", fake)
+    r = client.post("/invoices/scan", files={"file": ("hd.jpg", b"\xff\xd8\xff" + b"0" * 50, "image/jpeg")},
+                    follow_redirects=True)
+    assert "Đọc bởi Gemini" in r.text
+    inv = db.scalars(select(Invoice).order_by(Invoice.id.desc())).first()
+    db.refresh(inv)
+    assert inv.source == "gemini" and inv.supplier_id == sup.id
+    assert inv.lines[0].ingredient_id == chicken.id and inv.lines[0].quantity == 5.5
+
+    # Gemini hết lượt -> vẫn giữ ảnh, tạo phiếu trống để nhập tay, báo lỗi dễ hiểu.
+    async def limited(url, headers, payload):
+        return 429, '{"error": {"status": "RESOURCE_EXHAUSTED"}}'
+
+    monkeypatch.setattr(ocr, "_post_json", limited)
+    r = client.post("/invoices/scan", files={"file": ("hd2.jpg", b"\xff\xd8\xff" + b"1" * 50, "image/jpeg")},
+                    follow_redirects=True)
+    assert "hết lượt miễn phí" in r.text and "Phiếu nhập thủ công" not in r.text
+
+
+def test_gemini_without_key_warns_and_errors_have_single_period(client, db, monkeypatch):
+    from app.services import ocr
+
+    r = client.post("/settings/ocr", data={"ocr_provider": "gemini"}, follow_redirects=True)
+    assert "chưa có API key" in r.text and "flash-warn" in r.text
+    scan = client.get("/invoices/scan").text
+    assert "Thiếu API key" in scan and "AI sẵn sàng" not in scan
+
+    client.post("/settings/ocr", data={"ocr_provider": "gemini", "ocr_gemini_key": "AIza-x"})
+    assert "AI sẵn sàng" in client.get("/invoices/scan").text
+
+    async def bad_key(url, headers, payload):
+        return 400, '{"error": {"message": "API key not valid. Please pass a valid API key."}}'
+
+    monkeypatch.setattr(ocr, "_post_json", bad_key)
+    r = client.post("/invoices/scan", files={"file": ("a.png", b"\x89PNG" + b"0" * 20, "image/png")}, follow_redirects=True)
+    assert "key không hợp lệ" in r.text and ".." not in r.text.split("flash-error")[1].split("</div>")[0]

@@ -36,6 +36,52 @@
   </div>
 </div>
 
+<div class="grid grid-2">
+  <form class="card" method="post" action="/settings/ocr">
+    <div class="card-head"><h2>🤖 AI đọc hoá đơn</h2>
+      <span class="pill {{ 'pill-ok' if ocr_ready else 'pill-warn' }}">Đang dùng: {{ ocr_labels.get(ocr_provider, ocr_provider) }}{{ ' (thiếu key)' if ocr_provider != 'demo' and not ocr_ready }}</span></div>
+    <div class="free-box">
+      <strong>💡 Miễn phí: Google Gemini</strong>
+      <ol class="small">
+        <li>Mở <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, đăng nhập bằng tài khoản Google.</li>
+        <li>Bấm <em>Create API key</em> rồi copy key (bắt đầu bằng <code>AIza…</code>).</li>
+        <li>Dán vào ô <em>Gemini API key</em> bên dưới, chọn <em>Google Gemini</em> và bấm <em>Lưu cài đặt AI</em>.</li>
+      </ol>
+      <p class="hint" style="margin:0">Gói miễn phí có giới hạn số lượt mỗi phút/ngày (thừa cho một nhà hàng) và không cần thẻ thanh toán. Về dữ liệu: theo điều khoản Gemini API, người dùng ở <strong>EU (gồm Đức), Thuỵ Sĩ và Anh</strong> được áp dụng quy định dữ liệu của gói trả phí ngay cả khi dùng miễn phí, tức Google không dùng hoá đơn để cải thiện sản phẩm. Ở nước khác, dữ liệu gói miễn phí có thể được Google dùng và cho nhân viên xem xét, nên đừng gửi tài liệu nhạy cảm.</p>
+    </div>
+    <div class="form-grid">
+      <div><label for="o-prov">Nhà cung cấp AI</label>
+        <select id="o-prov" name="ocr_provider">
+          {% for v, l in [('auto', 'Tự động (key nào có thì dùng)'), ('anthropic', 'Claude (Anthropic)'), ('gemini', 'Google Gemini (có gói miễn phí)'), ('openai', 'GPT-4o (OpenAI)'), ('demo', 'Demo – dữ liệu mẫu')] %}
+          <option value="{{ v }}" {{ 'selected' if ocr_settings.provider == v }}>{{ l }}</option>{% endfor %}
+        </select></div>
+      <div><label for="o-model">Model Claude</label><input id="o-model" name="ocr_anthropic_model" value="{{ ocr_settings.anthropic_model }}"></div>
+      <div><label for="o-ak">Anthropic API key</label>
+        <input id="o-ak" name="ocr_anthropic_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.anthropic_key else 'sk-ant-…' }}"></div>
+      <div><label for="o-gk">Gemini API key</label>
+        <input id="o-gk" name="ocr_gemini_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.gemini_key else 'AIza…' }}"></div>
+      <div><label for="o-gm">Model Gemini</label><input id="o-gm" name="ocr_gemini_model" value="{{ ocr_settings.gemini_model }}"></div>
+      <div><label for="o-ok">OpenAI API key</label>
+        <input id="o-ok" name="ocr_openai_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.openai_key else 'sk-…' }}"></div>
+    </div>
+    <p class="hint">{% if browser_mode %}Key chỉ được lưu trong trình duyệt này (IndexedDB) và gửi thẳng tới Anthropic/OpenAI/Google, không qua máy chủ nào khác. Không dùng trên máy tính công cộng.{% else %}Key lưu trong database của máy chủ. Có thể đặt bằng biến môi trường ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY thay vì nhập ở đây.{% endif %}</p>
+    <label class="check"><input type="checkbox" name="clear_keys" value="1"> Xoá các key đã lưu</label>
+    <div class="form-actions"><button class="btn btn-primary">Lưu cài đặt AI</button></div>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>💾 Sao lưu & dữ liệu</h2></div>
+    {% if browser_mode %}<p class="hint" style="margin-top:-6px">Bản GitHub Pages lưu dữ liệu ngay trong trình duyệt này. Hãy tải bản sao lưu thường xuyên, và dùng nó để chuyển dữ liệu sang máy khác.</p>{% endif %}
+    <div class="form-actions" style="margin-top:0"><a class="btn" href="/settings/backup" download>⬇ Tải bản sao lưu (.db)</a></div>
+    <form method="post" action="/settings/restore" enctype="multipart/form-data" onsubmit="return confirm('Dữ liệu hiện tại sẽ bị thay bằng bản sao lưu. Tiếp tục?')" style="margin-top:14px">
+      <label for="r-file">Khôi phục từ bản sao lưu</label>
+      <div class="form-row"><div><input id="r-file" type="file" name="file" accept=".db,application/x-sqlite3,application/octet-stream" required></div><button class="btn">Khôi phục</button></div>
+    </form>
+    <form method="post" action="/settings/reset" onsubmit="return confirm('Xoá toàn bộ dữ liệu và tạo lại dữ liệu demo?')" style="margin-top:14px">
+      <button class="btn btn-danger btn-sm">Xoá hết & tạo lại dữ liệu demo</button>
+    </form>
+  </div>
+</div>
+
 <form class="card" method="post" action="/settings/thresholds">
   <div class="card-head"><h2>Ngưỡng tồn tối thiểu</h2><button class="btn btn-primary">Lưu ngưỡng</button></div>
   <p class="hint" style="margin-top:-6px">Khi tồn kho thấp hơn ngưỡng, nguyên liệu được đánh dấu “Sắp hết” và hệ thống gửi email. Đặt 0 để tắt cảnh báo cho nguyên liệu đó.</p>
@@ -53,37 +99,4 @@
   <div class="form-actions"><button class="btn btn-primary">Lưu ngưỡng</button></div>
 </form>
 
-<div class="grid grid-2">
-  <form class="card" method="post" action="/settings/ocr">
-    <div class="card-head"><h2>🤖 AI đọc hoá đơn</h2>
-      <span class="pill {{ 'pill-warn' if ocr_provider == 'demo' else 'pill-ok' }}">Đang dùng: {{ {'anthropic': 'Claude', 'openai': 'GPT-4o', 'demo': 'Demo'}.get(ocr_provider, ocr_provider) }}</span></div>
-    <div class="form-grid">
-      <div><label for="o-prov">Nhà cung cấp AI</label>
-        <select id="o-prov" name="ocr_provider">
-          {% for v, l in [('auto', 'Tự động (key nào có thì dùng)'), ('anthropic', 'Claude (Anthropic)'), ('openai', 'GPT-4o (OpenAI)'), ('demo', 'Demo – dữ liệu mẫu')] %}
-          <option value="{{ v }}" {{ 'selected' if ocr_settings.provider == v }}>{{ l }}</option>{% endfor %}
-        </select></div>
-      <div><label for="o-model">Model Claude</label><input id="o-model" name="ocr_anthropic_model" value="{{ ocr_settings.anthropic_model }}"></div>
-      <div><label for="o-ak">Anthropic API key</label>
-        <input id="o-ak" name="ocr_anthropic_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.anthropic_key else 'sk-ant-…' }}"></div>
-      <div><label for="o-ok">OpenAI API key</label>
-        <input id="o-ok" name="ocr_openai_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.openai_key else 'sk-…' }}"></div>
-    </div>
-    <p class="hint">{% if browser_mode %}Key chỉ được lưu trong trình duyệt này (IndexedDB) và gửi thẳng tới Anthropic/OpenAI, không qua máy chủ nào khác. Không dùng trên máy tính công cộng.{% else %}Key lưu trong database của máy chủ. Có thể đặt bằng biến môi trường ANTHROPIC_API_KEY / OPENAI_API_KEY thay vì nhập ở đây.{% endif %}</p>
-    <label class="check"><input type="checkbox" name="clear_keys" value="1"> Xoá các key đã lưu</label>
-    <div class="form-actions"><button class="btn btn-primary">Lưu cài đặt AI</button></div>
-  </form>
-  <div class="card">
-    <div class="card-head"><h2>💾 Sao lưu & dữ liệu</h2></div>
-    {% if browser_mode %}<p class="hint" style="margin-top:-6px">Bản GitHub Pages lưu dữ liệu ngay trong trình duyệt này. Hãy tải bản sao lưu thường xuyên, và dùng nó để chuyển dữ liệu sang máy khác.</p>{% endif %}
-    <div class="form-actions" style="margin-top:0"><a class="btn" href="/settings/backup" download>⬇ Tải bản sao lưu (.db)</a></div>
-    <form method="post" action="/settings/restore" enctype="multipart/form-data" onsubmit="return confirm('Dữ liệu hiện tại sẽ bị thay bằng bản sao lưu. Tiếp tục?')" style="margin-top:14px">
-      <label for="r-file">Khôi phục từ bản sao lưu</label>
-      <div class="form-row"><div><input id="r-file" type="file" name="file" accept=".db,application/x-sqlite3,application/octet-stream" required></div><button class="btn">Khôi phục</button></div>
-    </form>
-    <form method="post" action="/settings/reset" onsubmit="return confirm('Xoá toàn bộ dữ liệu và tạo lại dữ liệu demo?')" style="margin-top:14px">
-      <button class="btn btn-danger btn-sm">Xoá hết & tạo lại dữ liệu demo</button>
-    </form>
-  </div>
-</div>
 {% endblock %}

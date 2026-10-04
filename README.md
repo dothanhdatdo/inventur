@@ -10,14 +10,14 @@ Viết bằng **Python** (FastAPI + SQLAlchemy + Jinja2). Cùng một mã nguồ
 | Link | <https://dothanhdatdo.github.io/inventur/> | tuỳ nơi deploy |
 | Dữ liệu | Lưu trong trình duyệt của thiết bị đó (IndexedDB). Có nút sao lưu/khôi phục `.db` | SQLite trên server, dùng chung cho mọi thiết bị |
 | Email cảnh báo | Qua dịch vụ miễn phí FormSubmit.co (lần đầu phải bấm link kích hoạt trong email) | SMTP (vd. Gmail + App Password) |
-| AI đọc hoá đơn | Nhập API key Claude/OpenAI ở trang **Cài đặt** (key chỉ lưu trên trình duyệt đó) | Biến môi trường `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
+| AI đọc hoá đơn | Nhập API key Gemini (miễn phí), Claude hoặc OpenAI ở trang **Cài đặt** (key chỉ lưu trên trình duyệt đó) | Biến môi trường `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
 
 Chưa có API key thì app chạy ở **chế độ demo**: ảnh hoá đơn vẫn được lưu, dữ liệu bóc tách là một hoá đơn mẫu, đủ để thử toàn bộ quy trình. Có sẵn [ảnh hoá đơn mẫu](app/static/sample-invoice.png) để thử.
 
 ## Tính năng
 
 - **Nhập hàng**
-  - 📷 *Quét hoá đơn*: chụp ảnh/tải JPG, PNG, PDF → AI (Claude hoặc GPT-4o) bóc tách nhà cung cấp, số và ngày hoá đơn, mặt hàng, số lượng, đơn giá, thành tiền, VAT.
+  - 📷 *Quét hoá đơn*: chụp ảnh/tải JPG, PNG, PDF → AI (Google Gemini miễn phí, Claude hoặc GPT-4o) bóc tách nhà cung cấp, số và ngày hoá đơn, mặt hàng, số lượng, đơn giá, thành tiền, VAT.
   - Màn hình *đối soát*: ảnh hoá đơn bên trái, dữ liệu bên phải để sửa, gắn nguyên liệu, quy đổi đơn vị (vd. 1 bao = 18 kg, 1 thùng = 24 lon), nhập hạn sử dụng, rồi bấm **Nhập kho**.
   - Tự khớp tên hàng trên hoá đơn với nguyên liệu trong kho (hiểu cả từ ghép tiếng Đức) và **ghi nhớ mapping** theo từng nhà cung cấp cho lần quét sau.
   - ✍️ *Nhập thủ công*: tạo phiếu nhập gõ tay, hoặc nhập nhanh từng nguyên liệu.
@@ -26,6 +26,15 @@ Chưa có API key thì app chạy ở **chế độ demo**: ảnh hoá đơn v�
 - **Định lượng món (BOM)** và **bán hàng**: ghi số suất bán, kho tự trừ theo định lượng, tính giá vốn và food cost.
 - **Kiểm kê (Inventur)**: nhập số đếm thực tế, app điều chỉnh tồn và báo cáo hao hụt theo giá trị.
 - **Báo cáo**: doanh thu và giá vốn theo ngày, food cost %, tiền nhập hàng, hao hụt, biểu đồ biến động giá nhập theo nhà cung cấp.
+
+## AI đọc hoá đơn miễn phí (Google Gemini)
+
+1. Mở <https://aistudio.google.com/apikey>, đăng nhập Google, bấm **Create API key**, copy key (`AIza…`).
+2. Trong app: **Cài đặt & cảnh báo** → *AI đọc hoá đơn* → dán vào ô **Gemini API key**, chọn **Google Gemini** → **Lưu cài đặt AI**.
+
+Gói miễn phí giới hạn số lượt mỗi phút/ngày (thừa cho một nhà hàng) và không cần thẻ thanh toán. Về dữ liệu: theo [điều khoản Gemini API](https://ai.google.dev/gemini-api/terms), người dùng ở EU (gồm Đức), Thuỵ Sĩ và Anh được áp dụng quy định dữ liệu của gói trả phí cả khi dùng miễn phí (Google không dùng dữ liệu để cải thiện sản phẩm). Ở nước khác, dữ liệu gói miễn phí có thể được Google dùng và cho nhân viên xem xét, nên đừng gửi tài liệu nhạy cảm. Model mặc định `gemini-flash-latest` luôn trỏ tới bản Gemini Flash mới nhất; có thể đổi trong Cài đặt.
+
+Claude / OpenAI tính phí theo lượt dùng qua API (tài khoản API riêng, không dùng chung với gói Claude Pro/ChatGPT Plus).
 
 ## Bật bản web trên GitHub Pages
 
@@ -93,7 +102,7 @@ pytest
 │   ├── seed.py           # dữ liệu mẫu
 │   ├── services/
 │   │   ├── stock.py      # nhập/xuất kho theo lô, kiểm kê, bán món
-│   │   ├── ocr.py        # AI đọc hoá đơn (Claude / GPT-4o / demo)
+│   │   ├── ocr.py        # AI đọc hoá đơn (Gemini / Claude / GPT-4o / demo)
 │   │   ├── matching.py   # khớp tên hàng trên HĐ với nguyên liệu, quy đổi đơn vị
 │   │   ├── invoices.py   # quy trình hoá đơn: nháp → duyệt → nhập kho
 │   │   └── alerts.py     # cảnh báo sắp hết + gửi email

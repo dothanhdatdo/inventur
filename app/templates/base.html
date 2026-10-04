@@ -37,8 +37,8 @@
       {% endfor %}
     </nav>
     <div class="sidebar-foot">
-      <span class="pill {{ 'pill-ok' if ocr_provider != 'demo' else 'pill-warn' }}">
-        OCR: {{ {'anthropic': 'Claude', 'openai': 'GPT-4o', 'demo': 'Demo'}.get(ocr_provider, ocr_provider) }}
+      <span class="pill {{ 'pill-ok' if ocr_ready else 'pill-warn' }}">
+        OCR: {{ ocr_labels.get(ocr_provider, ocr_provider) }}
       </span>
       {% if auth_enabled %}<a href="/logout" class="muted">Đăng xuất</a>{% endif %}
     </div>

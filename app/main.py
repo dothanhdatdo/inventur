@@ -84,6 +84,9 @@ templates.env.filters["money"] = _money
 templates.env.filters["qty"] = stock.fmt_qty
 templates.env.filters["vdate"] = _date
 templates.env.globals["movement_labels"] = MOVEMENT_LABELS
+templates.env.globals["ocr_labels"] = {
+    "anthropic": "Claude", "openai": "GPT-4o", "gemini": "Gemini", "demo": "Demo", "manual": "Thủ công",
+}
 templates.env.globals["today"] = date.today
 
 
@@ -94,7 +97,9 @@ def render(request: Request, name: str, **ctx):
     ctx.setdefault("flash", request.session.pop("flash", None))
     ctx.setdefault("alert_flash", request.session.pop("alert_flash", None))
     with SessionLocal() as session:
-        ctx["ocr_provider"] = ocr.active_provider(ocr.get_settings(session))
+        ocr_settings = ocr.get_settings(session)
+        ctx["ocr_provider"] = ocr.active_provider(ocr_settings)
+        ctx["ocr_ready"] = ocr.provider_ready(ocr_settings)
     ctx["browser_mode"] = config.IS_BROWSER
     ctx["auth_enabled"] = bool(config.APP_PASSWORD)
     ctx["path"] = request.url.path
@@ -522,7 +527,7 @@ async def invoice_scan(request: Request, file: UploadFile = File(None), db: Sess
     except ocr.OcrError as exc:
         # Vẫn giữ ảnh, tạo HĐ trống để nhập tay.
         parsed = ocr.ParsedInvoice(source="manual")
-        flash(request, f"Không đọc được hoá đơn bằng AI: {exc}. Bạn có thể nhập tay các dòng.", "error")
+        flash(request, f"Không đọc được hoá đơn bằng AI: {str(exc).rstrip('.')}. Bạn có thể nhập tay các dòng.", "error")
     invoice = invoice_service.create_draft(db, parsed, filename, media_type)
     db.commit()
     if parsed.source == "demo":
@@ -939,22 +944,34 @@ def settings_ocr(
     ocr_provider: str = Form("auto"),
     ocr_anthropic_key: str = Form(""),
     ocr_openai_key: str = Form(""),
+    ocr_gemini_key: str = Form(""),
+    ocr_gemini_model: str = Form(""),
     ocr_anthropic_model: str = Form(""),
     clear_keys: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    alerts.set_setting(db, "ocr_provider", ocr_provider if ocr_provider in ("auto", "anthropic", "openai", "demo") else "auto")
+    alerts.set_setting(db, "ocr_provider", ocr_provider if ocr_provider in ("auto", "anthropic", "openai", "gemini", "demo") else "auto")
+    alerts.set_setting(db, "ocr_gemini_model", ocr_gemini_model.strip())
     alerts.set_setting(db, "ocr_anthropic_model", ocr_anthropic_model.strip())
     if clear_keys:
         alerts.set_setting(db, "ocr_anthropic_key", "")
         alerts.set_setting(db, "ocr_openai_key", "")
+        alerts.set_setting(db, "ocr_gemini_key", "")
     # Ô để trống = giữ key cũ (key không bao giờ được hiển thị lại trên trang).
     if ocr_anthropic_key.strip():
         alerts.set_setting(db, "ocr_anthropic_key", ocr_anthropic_key.strip())
     if ocr_openai_key.strip():
         alerts.set_setting(db, "ocr_openai_key", ocr_openai_key.strip())
+    if ocr_gemini_key.strip():
+        alerts.set_setting(db, "ocr_gemini_key", ocr_gemini_key.strip())
     db.commit()
-    flash(request, f"Đã lưu cài đặt AI · đang dùng: {ocr.active_provider(ocr.get_settings(db))}")
+    settings = ocr.get_settings(db)
+    provider = ocr.active_provider(settings)
+    label = templates.env.globals["ocr_labels"].get(provider, provider)
+    if provider != "demo" and not ocr.provider_ready(settings):
+        flash(request, f"Đã chọn {label} nhưng chưa có API key – hãy dán key rồi lưu lại. Trong lúc chờ, quét hoá đơn sẽ báo lỗi.", "warn")
+    else:
+        flash(request, f"Đã lưu cài đặt AI · đang dùng: {label}")
     return redirect("/settings")
 
 

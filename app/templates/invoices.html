@@ -10,7 +10,7 @@
     <tr><td><a href="/invoices/{{ inv.id }}">#{{ inv.id }}</a></td><td class="nowrap">{{ inv.invoice_date|vdate }}</td>
       <td>{{ inv.supplier.name if inv.supplier else (inv.supplier_name_raw or '—') }}</td><td class="small">{{ inv.invoice_number }}</td>
       <td class="num">{{ inv.lines|length }}</td><td class="num">{{ inv.subtotal|money }}</td>
-      <td><span class="pill pill-muted">{{ {'anthropic': 'AI · Claude', 'openai': 'AI · GPT', 'demo': 'Demo', 'manual': 'Thủ công'}.get(inv.source, inv.source) }}</span>{% if inv.file_path %} 📎{% endif %}</td>
+      <td><span class="pill pill-muted">{{ ('AI · ' if inv.source not in ('demo', 'manual') else '') ~ ocr_labels.get(inv.source, inv.source) }}</span>{% if inv.file_path %} 📎{% endif %}</td>
       <td>{% if inv.status == 'confirmed' %}<span class="pill pill-ok">Đã nhập kho</span>{% else %}<a class="pill pill-warn" href="/invoices/{{ inv.id }}">Chờ duyệt</a>{% endif %}</td></tr>
     {% else %}<tr><td colspan="8" class="empty">Chưa có hoá đơn. <a href="/invoices/scan">Nhập hàng ngay</a>.</td></tr>{% endfor %}</tbody>
   </table></div>
