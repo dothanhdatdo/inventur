@@ -6,11 +6,30 @@
 <a class="btn btn-primary" href="/invoices/scan">Quét hoá đơn</a>
 {% endblock %}
 {% block content %}
+{% if not area %}
+<div class="area-cards">
+  {% for c in area_cards %}{% set info = AREAS[c.key] %}
+  <div class="card area-card">
+    <div class="card-head" style="margin-bottom:0"><h2><span class="area-tag area-{{ c.key }}" style="margin:0">{{ info.icon }} {{ info.label }} · {{ info.label_de }}</span></h2>
+      <a class="btn btn-sm" href="/area/{{ c.key }}?next=/">Xem riêng →</a></div>
+    <div class="stats">
+      <div><div class="label">Giá trị tồn</div><div class="v">{{ c.value|money }}</div></div>
+      <div><div class="label">Dưới ngưỡng</div><div class="v {{ 'bad' if c.low }}">{{ c.low }}</div></div>
+      <div><div class="label">Sắp hết hạn</div><div class="v {{ 'bad' if c.expiring }}">{{ c.expiring }}</div></div>
+      <div><div class="label">Doanh thu 7 ngày</div><div class="v">{{ c.revenue|money }}</div></div>
+      <div><div class="label">{{ info.cost_label }}</div><div class="v">{% if c.revenue %}{{ '%.1f'|format(c.cost / c.revenue * 100) }} %{% else %}–{% endif %}</div></div>
+      <div><div class="label">Hao hụt 7 ngày</div><div class="v">{{ c.waste|money }}</div></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 <div class="kpis">
   <div class="kpi"><div class="label">Giá trị tồn kho</div><div class="value">{{ stock_value|money }}</div></div>
   <div class="kpi {{ 'alert' if low }}"><a href="/ingredients?status=low"><div class="label">Dưới ngưỡng tồn</div><div class="value">{{ low|length }} / {{ ingredient_count }}</div></a></div>
   <div class="kpi {{ 'alert' if expiring }}"><div class="label">Lô sắp hết hạn (≤ {{ expiry_days }} ngày)</div><div class="value">{{ expiring|length }}</div></div>
-  <div class="kpi"><div class="label">Food cost 7 ngày</div><div class="value">{% if revenue %}{{ '%.1f'|format(cogs / revenue * 100) }} %{% else %}–{% endif %}</div><div class="small muted">Doanh thu {{ revenue|money }}</div></div>
+  <div class="kpi {{ 'alert' if orders_count }}"><a href="/orders"><div class="label">Cần đặt hàng</div><div class="value">{{ orders_count }} mặt hàng</div></a></div>
+  <div class="kpi"><div class="label">{{ AREAS[area].cost_label if area else 'Food & beverage cost' }} 7 ngày</div><div class="value">{% if revenue %}{{ '%.1f'|format(cogs / revenue * 100) }} %{% else %}–{% endif %}</div><div class="small muted">Doanh thu {{ revenue|money }}</div></div>
   <div class="kpi"><div class="label">Hao hụt 7 ngày</div><div class="value">{{ waste|money }}</div></div>
 </div>
 
@@ -28,14 +47,14 @@
 
 <div class="grid grid-2">
   <div class="card">
-    <div class="card-head"><h2>Sắp hết hàng</h2><a href="/settings" class="small">Cài ngưỡng & email</a></div>
+    <div class="card-head"><h2>Sắp hết hàng</h2><span><a href="/orders" class="small">Danh sách đặt hàng</a> · <a href="/settings" class="small">Cài ngưỡng & email</a></span></div>
     {% if low %}
     <div class="table-wrap"><table>
       <thead><tr><th>Nguyên liệu</th><th class="num">Còn</th><th class="num">Ngưỡng</th><th class="hide-sm">NCC</th></tr></thead>
       <tbody>
       {% for ing, qty in low %}
       <tr class="is-low">
-        <td><a href="/ingredients/{{ ing.id }}">{{ ing.name }}</a>
+        <td>{% if not area %}<span title="{{ area_label(ing.area) }}">{{ AREAS[ing.area].icon }}</span> {% endif %}<a href="/ingredients/{{ ing.id }}">{{ ing.name }}</a>
           <div class="bar"><span style="width: {{ [100, (qty / ing.min_stock * 100) if ing.min_stock else 0]|min }}%"></span></div></td>
         <td class="num"><strong>{{ qty|qty }}</strong> {{ ing.unit }}</td>
         <td class="num">{{ ing.min_stock|qty }} {{ ing.unit }}</td>
@@ -55,7 +74,7 @@
     <ul class="list">
       {% for b in expiring %}
       {% set days = (b.expiry_date - today()).days %}
-      <li><span><a href="/ingredients/{{ b.ingredient_id }}">{{ b.ingredient.name }}</a>
+      <li><span>{% if not area %}{{ AREAS[b.ingredient.area].icon }} {% endif %}<a href="/ingredients/{{ b.ingredient_id }}">{{ b.ingredient.name }}</a>
         <span class="muted small">· {{ b.quantity_remaining|qty }} {{ b.ingredient.unit }}</span></span>
         <span class="pill {{ 'pill-danger' if days <= 0 else 'pill-warn' }}">
           {% if days < 0 %}Đã hết hạn {{ -days }} ngày{% elif days == 0 %}Hết hạn hôm nay{% else %}Còn {{ days }} ngày{% endif %}
@@ -72,7 +91,7 @@
     <thead><tr><th>Thời gian</th><th>Nguyên liệu</th><th>Loại</th><th class="num">Số lượng</th><th>Ghi chú</th></tr></thead>
     <tbody>
     {% for m in recent %}
-    <tr><td class="nowrap small">{{ m.created_at|vdate }}</td><td><a href="/ingredients/{{ m.ingredient_id }}">{{ m.ingredient.name }}</a></td>
+    <tr><td class="nowrap small">{{ m.created_at|vdate }}</td><td>{% if not area %}{{ AREAS[m.ingredient.area].icon }} {% endif %}<a href="/ingredients/{{ m.ingredient_id }}">{{ m.ingredient.name }}</a></td>
       <td><span class="pill {{ 'pill-ok' if m.quantity > 0 else ('pill-danger' if m.kind == 'WASTE' else 'pill-muted') }}">{{ movement_labels.get(m.kind, m.kind) }}</span></td>
       <td class="num">{{ '+' if m.quantity > 0 }}{{ m.quantity|qty }} {{ m.ingredient.unit }}</td><td class="small muted">{{ m.reference }}</td></tr>
     {% endfor %}

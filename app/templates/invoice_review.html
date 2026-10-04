@@ -41,6 +41,12 @@
     </div>
 
     <div class="card">
+      {% if area_totals %}
+      <div class="small" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        {% for key, info in AREAS.items() %}{% if area_totals.get(key) %}<span class="area-tag area-{{ key }}" style="margin:0">{{ info.icon }} {{ info.label }}: {{ area_totals[key]|money }}</span>{% endif %}{% endfor %}
+        {% if area_totals.get('') %}<span class="pill pill-warn">Chưa gắn: {{ area_totals['']|money }}</span>{% endif %}
+      </div>
+      {% endif %}
       <div class="card-head"><h2>Mặt hàng</h2>
         <span class="small muted"><span class="pill pill-ok">Đã nhớ</span> khớp theo lần trước · <span class="pill pill-warn">?</span> cần kiểm tra</span></div>
       <div class="lines" id="lines">
@@ -76,6 +82,7 @@
 {% block scripts %}
 <script>
 window.INGREDIENTS = {{ ing_json|tojson }};
+window.AREA_LABELS = {{ AREAS|tojson }};
 window.CURRENCY = '€';
 initInvoiceReview({{ invoice.lines|length }});
 </script>

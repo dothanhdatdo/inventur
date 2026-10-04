@@ -48,6 +48,9 @@ class Ingredient(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     active: Mapped[int] = mapped_column(Integer, default=1)
     alert_sent: Mapped[int] = mapped_column(Integer, default=0)  # đã gửi mail cảnh báo sắp hết
+    area: Mapped[str] = mapped_column(String(20), default="kitchen", server_default="kitchen")  # kitchen | bar
+    # Mức tồn chuẩn (Par-Bestand): đặt hàng lên tới mức này. 0 = gấp đôi ngưỡng tối thiểu.
+    par_level: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
 
     supplier: Mapped[Supplier | None] = relationship()
     batches: Mapped[list["Batch"]] = relationship(back_populates="ingredient")
@@ -152,6 +155,7 @@ class Dish(Base):
     code: Mapped[str] = mapped_column(String(20), default="")
     name: Mapped[str] = mapped_column(String(200), unique=True)
     price: Mapped[float] = mapped_column(Float, default=0.0)
+    area: Mapped[str] = mapped_column(String(20), default="kitchen", server_default="kitchen")  # món bếp | đồ uống quầy
 
     items: Mapped[list["RecipeItem"]] = relationship(
         back_populates="dish", cascade="all, delete-orphan"
@@ -186,6 +190,7 @@ class Stocktake(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     note: Mapped[str] = mapped_column(String(300), default="")
+    area: Mapped[str] = mapped_column(String(20), default="", server_default="")  # "" = cả hai khu
 
     lines: Mapped[list["StocktakeLine"]] = relationship(
         back_populates="stocktake", cascade="all, delete-orphan"
@@ -232,6 +237,56 @@ class AlertLog(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    migrate()
+
+
+def migrate(bind=None) -> list[str]:
+    """Thêm các cột mới vào database cũ (vd. dữ liệu đã lưu trong trình duyệt) mà không mất dữ liệu.
+
+    create_all() chỉ tạo bảng còn thiếu, không thêm cột -> tự ALTER TABLE cho từng cột mới.
+    """
+    from sqlalchemy import inspect, text
+
+    bind = bind or engine
+    added: list[str] = []
+    inspector = inspect(bind)
+    with bind.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {col["name"] for col in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                col_type = column.type.compile(dialect=bind.dialect)
+                default = column.server_default.arg if column.server_default is not None else None
+                ddl = f'ALTER TABLE {table.name} ADD COLUMN "{column.name}" {col_type}'
+                if default is not None:
+                    ddl += f" DEFAULT '{default}'" if isinstance(default, str) and not default.replace(".", "").isdigit() else f" DEFAULT {default}"
+                conn.execute(text(ddl))
+                added.append(f"{table.name}.{column.name}")
+        if "ingredients.area" in added:
+            _backfill_areas(conn)
+    return added
+
+
+def _backfill_areas(conn) -> None:
+    """Dữ liệu cũ chưa có khu: nhóm/ tên giống đồ uống -> quầy, còn lại -> bếp."""
+    from sqlalchemy import text
+
+    from .areas import BAR, guess_area
+
+    for ing_id, name, category in conn.execute(text("SELECT id, name, category FROM ingredients")).all():
+        if guess_area(name or "", category or "") == BAR:
+            conn.execute(text("UPDATE ingredients SET area = :a WHERE id = :i"), {"a": BAR, "i": ing_id})
+    # Món mà mọi thành phần đều thuộc quầy -> đồ uống của quầy.
+    rows = conn.execute(text(
+        "SELECT d.id, MIN(i.area), MAX(i.area), COUNT(i.id) FROM dishes d "
+        "JOIN recipe_items r ON r.dish_id = d.id JOIN ingredients i ON i.id = r.ingredient_id GROUP BY d.id"
+    )).all()
+    for dish_id, lo, hi, count in rows:
+        if count and lo == hi == BAR:
+            conn.execute(text("UPDATE dishes SET area = :a WHERE id = :i"), {"a": BAR, "i": dish_id})
 
 
 def get_session():

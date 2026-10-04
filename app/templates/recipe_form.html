@@ -5,6 +5,8 @@
 {% block content %}
 <form class="card" method="post" action="/recipes/{{ dish.id if dish else 'new' }}">
   <div class="form-grid">
+    <div><label for="d-area">Bán ở khu</label>
+      <select id="d-area" name="area">{% for key, info in AREAS.items() %}<option value="{{ key }}" {{ 'selected' if default_area == key }}>{{ info.icon }} {{ info.label }} · {{ info.label_de }}</option>{% endfor %}</select></div>
     <div><label for="d-code">Mã món</label><input id="d-code" name="code" value="{{ dish.code if dish else '' }}" placeholder="vd. L6"></div>
     <div style="grid-column: span 2"><label for="d-name">Tên món *</label><input id="d-name" name="name" required value="{{ dish.name if dish else '' }}"></div>
     <div><label for="d-price">Giá bán (€)</label><input id="d-price" name="price" inputmode="decimal" value="{{ '%.2f'|format(dish.price) if dish else '' }}"></div>
@@ -13,14 +15,14 @@
   <div id="recipeRows">
     {% for it in (dish.items if dish else []) %}
     <div class="recipe-row">
-      <select name="ingredient_id">{% for i in ingredients %}<option value="{{ i.id }}" {{ 'selected' if i.id == it.ingredient_id }}>{{ i.name }}</option>{% endfor %}</select>
+      <select name="ingredient_id">{% for i in ingredients %}<option value="{{ i.id }}" {{ 'selected' if i.id == it.ingredient_id }}>{{ AREAS[i.area].icon }} {{ i.name }}</option>{% endfor %}</select>
       <input name="quantity" inputmode="decimal" value="{{ it.quantity|qty }}"><span class="unit small muted"></span>
       <button type="button" class="btn btn-sm" onclick="this.parentElement.remove(); recipeCost()" aria-label="Xoá">✕</button>
     </div>
     {% endfor %}
   </div>
   <template id="recipeTemplate"><div class="recipe-row">
-    <select name="ingredient_id"><option value="">— chọn —</option>{% for i in ingredients %}<option value="{{ i.id }}">{{ i.name }}</option>{% endfor %}</select>
+    <select name="ingredient_id"><option value="">— chọn —</option>{% for i in ingredients %}<option value="{{ i.id }}">{{ AREAS[i.area].icon }} {{ i.name }}</option>{% endfor %}</select>
     <input name="quantity" inputmode="decimal" placeholder="0"><span class="unit small muted"></span>
     <button type="button" class="btn btn-sm" onclick="this.parentElement.remove(); recipeCost()" aria-label="Xoá">✕</button>
   </div></template>

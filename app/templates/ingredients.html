@@ -19,7 +19,11 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Nguyên liệu</th><th class="num">Tồn kho</th><th class="num">Ngưỡng tối thiểu</th><th class="num">Giá nhập gần nhất</th><th class="num">Giá trị</th><th>Trạng thái</th></tr></thead>
     <tbody>
-    {% for cat, items in groups.items() %}
+    {% set ns = namespace(area=None) %}
+    {% for (ing_area, cat), items in groups.items() %}
+      {% if not area and ing_area != ns.area %}{% set ns.area = ing_area %}
+      <tr class="area-row"><td colspan="6"><span class="area-tag area-{{ ing_area }}" style="margin:0">{{ AREAS[ing_area].icon }} {{ area_label(ing_area) }}</span></td></tr>
+      {% endif %}
       <tr class="group-row"><td colspan="6">{{ cat }}</td></tr>
       {% for i in items %}
       {% set s = stocks.get(i.id, 0) %}

@@ -208,3 +208,91 @@ def test_gemini_without_key_warns_and_errors_have_single_period(client, db, monk
     monkeypatch.setattr(ocr, "_post_json", bad_key)
     r = client.post("/invoices/scan", files={"file": ("a.png", b"\x89PNG" + b"0" * 20, "image/png")}, follow_redirects=True)
     assert "key không hợp lệ" in r.text and ".." not in r.text.split("flash-error")[1].split("</div>")[0]
+
+
+def test_area_switch_filters_pages(client, db):
+    from app.db import Dish, RecipeItem
+
+    sup, rice, chicken, coke = seed_basic(db)
+    coke.area = "bar"
+    cola = Dish(name="Coca-Cola", price=3.5, area="bar")
+    cola.items = [RecipeItem(ingredient_id=coke.id, quantity=1)]
+    pho = Dish(name="Phở bò", price=14.9, area="kitchen")
+    db.add_all([cola, pho])
+    db.commit()
+
+    r = client.get("/area/bar?next=/ingredients", follow_redirects=True)
+    assert "Coca-Cola 0,33l" in r.text and "Gạo Jasmin" not in r.text and "Quầy · Theke" in r.text
+    assert "Phở bò" not in client.get("/sales").text and "Coca-Cola" in client.get("/recipes").text
+    st = client.get("/stocktake").text
+    assert 'name="area" value="bar"' in st and f"count_{coke.id}" in st and f"count_{rice.id}" not in st
+
+    r = client.get("/area/kitchen?next=/ingredients", follow_redirects=True)
+    assert "Gạo Jasmin" in r.text and "Coca-Cola 0,33l" not in r.text
+    r = client.get("/area/all?next=/", follow_redirects=True)
+    assert "area-cards" in r.text
+    assert client.get("/area/bar?next=//evil.example", follow_redirects=False).headers["location"] == "/"
+
+
+def test_stocktake_per_area_and_report(client, db):
+    sup, rice, chicken, coke = seed_basic(db)
+    coke.area = "bar"
+    db.commit()
+    from app.services import stock as st_service
+
+    st_service.receive(db, coke, 24, 0.7)
+    db.commit()
+    client.get("/area/bar")
+    r = client.post("/stocktake", data={"area": "bar", f"count_{coke.id}": "20", "note": "Theke"}, follow_redirects=True)
+    assert "Quầy · Theke" in r.text and "-2,80" in r.text  # thiếu 4 lon × 0,70 €
+    from app.db import Stocktake
+
+    assert db.scalars(select(Stocktake)).first().area == "bar"
+
+
+def test_new_ingredient_from_invoice_guesses_area(client, db):
+    from app.db import Invoice as Inv, InvoiceLine
+
+    sup, rice, chicken, coke = seed_basic(db)
+    inv = Inv(supplier_id=sup.id, source="manual")
+    inv.lines = [InvoiceLine(raw_name="Mangosaft 1l", quantity=6, unit_raw="Fl", unit_price=2, line_total=12, vat_rate=19),
+                 InvoiceLine(raw_name="Pak Choi frisch", quantity=3, unit_raw="kg", unit_price=3, line_total=9, vat_rate=7)]
+    db.add(inv)
+    db.commit()
+    form = {"supplier_id": str(sup.id), "vat": "0", "action": "confirm"}
+    rows = []
+    for i, line in enumerate(inv.lines):
+        rows.append(str(i))
+        form.update({f"line_id_{i}": str(line.id), f"raw_name_{i}": line.raw_name, f"quantity_{i}": str(line.quantity),
+                     f"unit_raw_{i}": line.unit_raw, f"unit_price_{i}": str(line.unit_price),
+                     f"line_total_{i}": str(line.line_total), f"pack_factor_{i}": "1", f"ingredient_id_{i}": "new"})
+    r = client.post(f"/invoices/{inv.id}", data={**form, "row": rows}, follow_redirects=True)
+    assert "Chia theo khu" in r.text
+    db.expire_all()
+    areas_by_name = {i.name: i.area for i in db.scalars(select(Ingredient)).all()}
+    assert areas_by_name["Mangosaft 1l"] == "bar" and areas_by_name["Pak Choi frisch"] == "kitchen"
+
+
+def test_orders_page_and_area_emails_settings(client, db):
+    sup, rice, chicken, coke = seed_basic(db)
+    coke.supplier_id = sup.id
+    coke.par_level = 96
+    coke.area = "bar"
+    db.commit()
+    r = client.get("/orders")
+    assert "Großmarkt Breisgau" in r.text and "4 × thùng Coca-Cola 0,33l" in r.text and "wir möchten bestellen" in r.text
+    client.post("/settings/alerts", data={"alert_email": "a@x.de", "alert_email_kitchen": "koch@x.de",
+                                          "alert_email_bar": "", "alerts_enabled": "1"})
+    assert alerts.alert_recipients(db, "kitchen") == ["koch@x.de"]
+    assert alerts.alert_recipients(db, "bar") == ["a@x.de"]
+    client.post("/settings/thresholds", data={f"par_{rice.id}": "60", f"min_{rice.id}": "25"})
+    db.expire_all()
+    assert db.get(Ingredient, rice.id).par_level == 60 and db.get(Ingredient, rice.id).min_stock == 25
+
+
+def test_reports_split_by_area(client, db):
+    seed_basic(db)
+    r = client.get("/reports")
+    assert "Bếp (Küche) và Quầy (Theke)" in r.text and "Beverage cost" in r.text
+    client.get("/area/bar")
+    assert client.get("/reports").status_code == 200

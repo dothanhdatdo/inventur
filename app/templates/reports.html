@@ -10,9 +10,31 @@
 <div class="kpis">
   <div class="kpi"><div class="label">Doanh thu</div><div class="value">{{ revenue|money }}</div></div>
   <div class="kpi"><div class="label">Giá vốn hàng bán</div><div class="value">{{ cogs|money }}</div></div>
-  <div class="kpi"><div class="label">Food cost %</div><div class="value">{{ '%.1f'|format(cogs / revenue * 100) if revenue else '–' }} %</div></div>
+  <div class="kpi"><div class="label">{{ AREAS[area].cost_label if area else 'Food & beverage cost' }} %</div><div class="value">{{ '%.1f'|format(cogs / revenue * 100) if revenue else '–' }} %</div></div>
   <div class="kpi"><div class="label">Tiền nhập hàng</div><div class="value">{{ purchases|money }}</div></div>
   <div class="kpi alert"><div class="label">Hao hụt & chênh lệch kiểm kê</div><div class="value">{{ losses|sum(attribute=3)|money }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Bếp (Küche) và Quầy (Theke) – {{ days }} ngày qua</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Khu</th><th class="num">Doanh thu</th><th class="num">Giá vốn</th><th class="num">Cost %</th><th class="num">Tiền nhập hàng</th><th class="num">Hao hụt</th><th class="num">Tồn kho hiện tại</th></tr></thead>
+    <tbody>
+    {% for r in split %}{% set info = AREAS[r.key] %}
+    <tr class="{{ 'muted' if area and area != r.key }}"><td><span class="area-tag area-{{ r.key }}" style="margin:0">{{ info.icon }} {{ info.label }} · {{ info.label_de }}</span></td>
+      <td class="num">{{ r.revenue|money }}</td><td class="num">{{ r.cost|money }}</td>
+      <td class="num"><strong>{{ '%.1f'|format(r.cost / r.revenue * 100) ~ ' %' if r.revenue else '–' }}</strong> <span class="small muted">{{ info.cost_label }}</span></td>
+      <td class="num">{{ r.purchases|money }}</td><td class="num">{{ r.losses|money }}</td><td class="num">{{ r.stock|money }}</td></tr>
+    {% endfor %}
+    {% if not area %}
+    {% set tr = split|sum(attribute='revenue') %}{% set tc = split|sum(attribute='cost') %}
+    <tr><td><strong>Tổng</strong></td><td class="num"><strong>{{ tr|money }}</strong></td><td class="num"><strong>{{ tc|money }}</strong></td>
+      <td class="num"><strong>{{ '%.1f'|format(tc / tr * 100) ~ ' %' if tr else '–' }}</strong></td>
+      <td class="num"><strong>{{ (split|sum(attribute='purchases'))|money }}</strong></td><td class="num"><strong>{{ (split|sum(attribute='losses'))|money }}</strong></td>
+      <td class="num"><strong>{{ (split|sum(attribute='stock'))|money }}</strong></td></tr>
+    {% endif %}
+    </tbody>
+  </table></div>
 </div>
 
 <div class="card"><div class="card-head"><h2>Doanh thu & giá vốn theo ngày</h2></div><div class="chart-box"><canvas id="dailyChart"></canvas></div></div>
@@ -40,11 +62,11 @@
 
 <div class="grid grid-2">
   <div class="card">
-    <div class="card-head"><h2>Món bán chạy</h2></div>
+    <div class="card-head"><h2>Bán chạy</h2></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Món</th><th class="num">Suất</th><th class="num">Doanh thu</th><th class="num">Food cost</th></tr></thead>
-      <tbody>{% for name, qty, rev, cost in sales %}
-      <tr><td>{{ name }}</td><td class="num">{{ qty }}</td><td class="num">{{ rev|money }}</td><td class="num">{{ '%.1f'|format(cost / rev * 100) if rev else '–' }} %</td></tr>
+      <thead><tr><th>Món / đồ uống</th><th class="num">Suất</th><th class="num">Doanh thu</th><th class="num">Cost %</th></tr></thead>
+      <tbody>{% for name, dish_area, qty, rev, cost in sales %}
+      <tr><td>{% if not area %}{{ AREAS[dish_area].icon }} {% endif %}{{ name }}</td><td class="num">{{ qty }}</td><td class="num">{{ rev|money }}</td><td class="num">{{ '%.1f'|format(cost / rev * 100) if rev else '–' }} %</td></tr>
       {% else %}<tr><td colspan="4" class="empty">Chưa có dữ liệu.</td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
@@ -52,17 +74,29 @@
     <div class="card-head"><h2>Hao hụt (Food waste & kiểm kê)</h2></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Nguyên liệu</th><th>Loại</th><th class="num">Số lượng</th><th class="num">Giá trị</th></tr></thead>
-      <tbody>{% for name, kind, qty, value, unit in losses %}
-      <tr><td>{{ name }}</td><td><span class="pill {{ 'pill-danger' if kind == 'WASTE' else 'pill-warn' }}">{{ movement_labels.get(kind) }}</span></td><td class="num">{{ qty|qty }} {{ unit }}</td><td class="num">{{ value|money }}</td></tr>
+      <tbody>{% for name, kind, qty, value, unit, ing_area in losses %}
+      <tr><td>{% if not area %}{{ AREAS[ing_area].icon }} {% endif %}{{ name }}</td><td><span class="pill {{ 'pill-danger' if kind == 'WASTE' else 'pill-warn' }}">{{ movement_labels.get(kind) }}</span></td><td class="num">{{ qty|qty }} {{ unit }}</td><td class="num">{{ value|money }}</td></tr>
       {% else %}<tr><td colspan="4" class="empty">Không có hao hụt.</td></tr>{% endfor %}</tbody>
     </table></div>
   </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Giá trị tồn kho theo nhóm hàng</h2><span class="small muted">tính theo giá nhập của từng lô</span></div>
+  {% set total = stock_by_category|sum(attribute=2) %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Nhóm hàng</th><th class="num">Giá trị</th><th style="width:40%">Tỷ trọng</th></tr></thead>
+    <tbody>{% for cat_area, cat, value in stock_by_category %}
+    <tr><td>{{ AREAS[cat_area].icon if cat_area in AREAS }} {{ cat }}</td><td class="num">{{ value|money }}</td>
+      <td><div class="bar" style="height:10px"><span style="width: {{ (value / total * 100) if total else 0 }}%; background: var(--primary)"></span></div></td></tr>
+    {% else %}<tr><td colspan="3" class="empty">Kho trống.</td></tr>{% endfor %}</tbody>
+  </table></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/chart.umd.min.js"></script>
 <script>
-dailyChart(document.getElementById('dailyChart'), {{ daily|tojson }});
+dailyChart(document.getElementById('dailyChart'), {{ daily|tojson }}, {{ (not area)|tojson }});
 priceChart(document.getElementById('priceChart'), {{ price_history|tojson }}, '');
 </script>
 {% endblock %}

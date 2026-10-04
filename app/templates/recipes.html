@@ -4,15 +4,22 @@
 {% block actions %}<a class="btn btn-primary" href="/recipes/new">+ Thêm món</a>{% endblock %}
 {% block content %}
 <div class="card">
-  <p class="hint" style="margin-top:0">Mỗi món gắn với lượng nguyên liệu tiêu hao. Khi ghi nhận bán hàng, kho tự trừ theo định lượng. Giá vốn tính theo giá nhập gần nhất.</p>
+  <p class="hint" style="margin-top:0">Mỗi món / đồ uống gắn với lượng nguyên liệu tiêu hao (vd. Weißwein 0,2l = 0,2 l rượu vang). Khi ghi nhận bán hàng, kho của khu tương ứng tự trừ theo định lượng. Giá vốn tính theo giá nhập gần nhất. Mục tiêu tham khảo: food cost bếp &lt; 30 %, beverage cost quầy &lt; 25 %.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Món</th><th>Thành phần</th><th class="num">Giá bán</th><th class="num">Giá vốn</th><th class="num">Food cost</th><th></th></tr></thead>
-    <tbody>{% for d in dishes %}
+    <thead><tr><th>Món</th><th>Thành phần</th><th class="num">Giá bán</th><th class="num">Giá vốn</th><th class="num">Cost %</th><th></th></tr></thead>
+    <tbody>
+    {% set ns = namespace(area=None) %}
+    {% for d in dishes %}
+    {% if d.area != ns.area %}{% set ns.area = d.area %}
+    <tr class="area-row"><td colspan="6"><span class="area-tag area-{{ d.area }}" style="margin:0">{{ AREAS[d.area].icon }} {{ 'Món bếp · Küche' if d.area == 'kitchen' else 'Đồ uống quầy · Theke' }}</span>
+      <span class="small muted">({{ AREAS[d.area].cost_label }})</span></td></tr>
+    {% endif %}
     {% set fc = (costs[d.id] / d.price * 100) if d.price else 0 %}
+    {% set good, ok = (30, 38) if d.area == 'kitchen' else (25, 32) %}
     <tr><td><strong>{{ d.code ~ ' · ' if d.code }}{{ d.name }}</strong></td>
       <td class="small muted">{% for it in d.items %}{{ it.ingredient.name.split(' / ')[0] }} {{ it.quantity|qty }}{{ it.ingredient.unit }}{{ ', ' if not loop.last }}{% else %}<em>Chưa có định lượng</em>{% endfor %}</td>
       <td class="num">{{ d.price|money }}</td><td class="num">{{ costs[d.id]|money }}</td>
-      <td class="num"><span class="pill {{ 'pill-ok' if fc < 30 else ('pill-warn' if fc < 38 else 'pill-danger') }}">{{ '%.1f'|format(fc) }} %</span></td>
+      <td class="num"><span class="pill {{ 'pill-ok' if fc < good else ('pill-warn' if fc < ok else 'pill-danger') }}">{{ '%.1f'|format(fc) }} %</span></td>
       <td><a class="btn btn-sm" href="/recipes/{{ d.id }}">Sửa</a></td></tr>
     {% else %}<tr><td colspan="6" class="empty">Chưa có món nào.</td></tr>{% endfor %}</tbody>
   </table></div>

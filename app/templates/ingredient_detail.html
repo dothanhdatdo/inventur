@@ -7,7 +7,9 @@
 <div class="kpis">
   <div class="kpi {{ 'alert' if is_low }}"><div class="label">Tồn kho hiện tại</div><div class="value">{{ current|qty }} {{ item.unit }}</div>
     {% if is_low %}<span class="pill pill-warn">Dưới ngưỡng</span>{% endif %}</div>
-  <div class="kpi"><div class="label">Ngưỡng tối thiểu</div><div class="value">{{ item.min_stock|qty }} {{ item.unit }}</div></div>
+  <div class="kpi"><div class="label">Ngưỡng tối thiểu</div><div class="value">{{ item.min_stock|qty }} {{ item.unit }}</div>
+    <div class="small muted">Mức tồn chuẩn: {{ (item.par_level if item.par_level else item.min_stock * 2)|qty }} {{ item.unit }}</div></div>
+  <div class="kpi"><div class="label">Khu</div><div class="value" style="font-size:1.1rem"><span class="area-tag area-{{ item.area }}" style="margin:0">{{ AREAS[item.area].icon }} {{ area_label(item.area) }}</span></div><div class="small muted">{{ item.category }}</div></div>
   <div class="kpi"><div class="label">Giá nhập gần nhất</div><div class="value">{{ item.last_price|money }}</div><div class="small muted">/ {{ item.unit }}</div></div>
   <div class="kpi"><div class="label">Quy đổi</div><div class="value" style="font-size:1.1rem">{% if item.pack_unit %}1 {{ item.pack_unit }} = {{ item.pack_size|qty }} {{ item.unit }}{% else %}–{% endif %}</div></div>
 </div>

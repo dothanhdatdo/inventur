@@ -123,3 +123,12 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
 def next_position(session: Session, invoice_id: int) -> int:
     current = session.scalar(select(func.max(InvoiceLine.position)).where(InvoiceLine.invoice_id == invoice_id))
     return (current or 0) + 1
+
+
+def area_totals(invoice: Invoice) -> dict[str, float]:
+    """Chia tiền hàng của hoá đơn theo khu (bếp / quầy / chưa gắn)."""
+    totals: dict[str, float] = {}
+    for line in invoice.lines:
+        key = line.ingredient.area if line.ingredient else ""
+        totals[key] = round(totals.get(key, 0.0) + (line.line_total or 0.0), 2)
+    return totals

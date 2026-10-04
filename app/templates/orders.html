@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Cần đặt hàng{% endblock %}
+{% block heading %}Cần đặt hàng{% endblock %}
+{% block actions %}<button class="btn" type="button" onclick="window.print()">🖨 In</button>{% endblock %}
+{% block content %}
+<p class="hint no-print" style="margin-top:0">Gợi ý dựa trên <strong>ngưỡng tối thiểu</strong> (dưới ngưỡng = cần gấp) và <strong>mức tồn chuẩn</strong> (đặt lên tới mức này, làm tròn theo thùng/két/bao). Chỉnh hai mức này ở <a href="/settings">Cài đặt</a> hoặc trang từng nguyên liệu.{% if not area %} Chọn <a href="/area/kitchen?next=/orders">🍳 Bếp</a> hoặc <a href="/area/bar?next=/orders">🍹 Quầy</a> để xem riêng.{% endif %}</p>
+{% for supplier, lines in groups %}
+<div class="card">
+  <div class="card-head"><h2>{{ supplier }}</h2><span class="small muted">{{ lines|length }} mặt hàng</span></div>
+  <div class="grid grid-2" style="gap:16px">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Mặt hàng</th><th class="num">Còn</th><th class="num">Nên đặt</th><th></th></tr></thead>
+      <tbody>{% for l in lines %}{% set ing = l.ingredient %}
+      <tr class="{{ 'is-low' if l.urgent }}">
+        <td>{% if not area %}{{ AREAS[ing.area].icon }} {% endif %}<a href="/ingredients/{{ ing.id }}">{{ ing.name }}</a></td>
+        <td class="num">{{ l.stock|qty }} {{ ing.unit }}</td>
+        <td class="num"><strong>{% if l.packs %}{{ l.packs }} {{ ing.pack_unit }}{% else %}{{ l.quantity|qty }} {{ ing.unit }}{% endif %}</strong>
+          {% if l.packs %}<div class="small muted">= {{ l.quantity|qty }} {{ ing.unit }}</div>{% endif %}</td>
+        <td>{% if l.urgent %}<span class="pill pill-danger">Gấp</span>{% else %}<span class="pill pill-muted">Bổ sung</span>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="no-print">
+      <label for="msg-{{ loop.index }}">Tin nhắn đặt hàng (tiếng Đức)</label>
+      <textarea id="msg-{{ loop.index }}" class="order-msg" readonly>{{ messages[supplier] }}</textarea>
+      <div class="form-actions" style="margin-top:8px">
+        <button class="btn btn-sm" type="button" onclick="copyText('msg-{{ loop.index }}', this)">📋 Copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card"><p class="empty">👍 Không có mặt hàng nào cần đặt{{ ' cho ' ~ AREAS[area].label if area }}.</p></div>
+{% endfor %}
+{% endblock %}

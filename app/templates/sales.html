@@ -3,24 +3,36 @@
 {% block heading %}Ghi nhận bán hàng{% endblock %}
 {% block content %}
 <form class="card" method="post" action="/sales">
-  <div class="card-head"><h2>Số món đã bán</h2>
+  <div class="card-head"><h2>Số món / đồ uống đã bán</h2>
     <div class="form-row" style="max-width:240px"><div><label for="sold_on">Ngày bán</label><input type="date" id="sold_on" name="sold_on" value="{{ today().isoformat() }}"></div></div></div>
-  <p class="hint" style="margin-top:-4px">Nhập số suất bán (hoặc tổng cuối ngày từ máy POS). Kho tự trừ nguyên liệu theo định lượng, lô cũ xuất trước.</p>
-  <div class="dish-grid">
-    {% for d in dishes %}
+  <p class="hint" style="margin-top:-4px">Nhập số suất bán (hoặc tổng cuối ngày từ máy POS). Món bếp trừ kho Bếp, đồ uống trừ kho Quầy theo định lượng, lô cũ xuất trước.</p>
+  {% set ns = namespace(area=None) %}
+  {% for d in dishes %}
+  {% if d.area != ns.area %}
+    {% if ns.area is not none %}</div>{% endif %}{% set ns.area = d.area %}
+    <h3 style="margin:16px 0 8px"><span class="area-tag area-{{ d.area }}" style="margin:0">{{ AREAS[d.area].icon }} {{ 'Món bếp · Küche' if d.area == 'kitchen' else 'Đồ uống · Theke' }}</span></h3>
+    <div class="dish-grid">
+  {% endif %}
     <label class="dish-card"><span><strong>{{ d.name }}</strong><br><span class="small muted">{{ d.code }} · {{ d.price|money }}{% if not d.items %} · <em>chưa có định lượng</em>{% endif %}</span></span>
       <input name="dish_{{ d.id }}" type="number" min="0" step="1" placeholder="0" inputmode="numeric"></label>
-    {% endfor %}
-  </div>
+  {% endfor %}
+  {% if dishes %}</div>{% else %}<p class="empty">Chưa có món nào cho khu này. <a href="/recipes/new">Thêm món</a>.</p>{% endif %}
   <div class="form-actions"><button class="btn btn-primary">Ghi nhận & trừ kho</button></div>
 </form>
 <div class="card">
   <div class="card-head"><h2>14 ngày gần nhất</h2></div>
+  {% set keys = [area] if area else AREAS.keys()|list %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Ngày</th><th class="num">Số suất</th><th class="num">Doanh thu</th><th class="num">Giá vốn (FIFO)</th><th class="num">Food cost</th></tr></thead>
-    <tbody>{% for d, qty, rev, cost in recent %}
-    <tr><td>{{ d }}</td><td class="num">{{ qty }}</td><td class="num">{{ rev|money }}</td><td class="num">{{ cost|money }}</td><td class="num">{{ '%.1f'|format(cost / rev * 100) if rev else '–' }} %</td></tr>
-    {% else %}<tr><td colspan="5" class="empty">Chưa có dữ liệu bán hàng.</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Ngày</th>
+      {% for key in keys %}<th class="num">{{ AREAS[key].icon }} {{ AREAS[key].label }}: doanh thu</th><th class="num">{{ AREAS[key].cost_label }}</th>{% endfor %}
+      {% if keys|length > 1 %}<th class="num">Tổng doanh thu</th>{% endif %}</tr></thead>
+    <tbody>{% for day, by_area in recent %}
+    <tr><td class="nowrap">{{ day }}</td>
+      {% for key in keys %}{% set v = by_area.get(key, (0, 0, 0)) %}
+      <td class="num">{{ v[1]|money }} <span class="small muted">({{ v[0] }})</span></td>
+      <td class="num">{{ '%.1f'|format(v[2] / v[1] * 100) ~ ' %' if v[1] else '–' }}</td>{% endfor %}
+      {% if keys|length > 1 %}<td class="num"><strong>{{ (by_area.values()|map(attribute=1)|sum)|money }}</strong></td>{% endif %}</tr>
+    {% else %}<tr><td colspan="6" class="empty">Chưa có dữ liệu bán hàng.</td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 {% endblock %}

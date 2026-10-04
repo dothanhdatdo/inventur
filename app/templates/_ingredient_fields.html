@@ -1,4 +1,11 @@
 <div class="form-grid">
+  <div style="grid-column: 1 / -1"><label>Thuộc khu</label>
+    <div class="area-switch" style="max-width:360px;margin:0;grid-template-columns:repeat(2,1fr)">
+      {% for key, info in AREAS.items() %}
+      <label class="check" style="justify-content:center;margin:0;padding:6px;border-radius:7px;cursor:pointer">
+        <input type="radio" name="area" value="{{ key }}" {{ 'checked' if (item.area if item else default_area) == key }}> {{ info.icon }} {{ info.label }} · {{ info.label_de }}</label>
+      {% endfor %}
+    </div></div>
   <div style="grid-column: span 2"><label for="f-name">Tên nguyên liệu *</label>
     <input id="f-name" name="name" required value="{{ item.name if item else prefill_name }}" placeholder="vd. Thịt bò / Rinderhüfte">
     <div class="hint">Mẹo: ghi cả tên tiếng Việt và tên trên hoá đơn (Đức) để AI khớp tốt hơn.</div></div>
@@ -11,6 +18,9 @@
   <div><label for="f-min">Ngưỡng tồn tối thiểu</label>
     <input id="f-min" name="min_stock" inputmode="decimal" value="{{ item.min_stock|qty if item else '' }}" placeholder="0">
     <div class="hint">Dưới mức này sẽ cảnh báo & gửi email.</div></div>
+  <div><label for="f-par">Mức tồn chuẩn (đặt lên tới)</label>
+    <input id="f-par" name="par_level" inputmode="decimal" value="{{ item.par_level|qty if item and item.par_level else '' }}" placeholder="mặc định: 2 × ngưỡng">
+    <div class="hint">Dùng cho danh sách “Cần đặt hàng”.</div></div>
   <div><label for="f-pu">Đơn vị mua (quy đổi)</label>
     <input id="f-pu" name="pack_unit" value="{{ item.pack_unit if item else '' }}" placeholder="vd. thùng, bao"></div>
   <div><label for="f-ps">1 đơn vị mua = ? đơn vị kho</label>

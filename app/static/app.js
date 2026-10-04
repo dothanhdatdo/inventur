@@ -83,7 +83,8 @@ function bindLine(el) {
     if (!ing) { calc.textContent = 'Chưa gắn nguyên liệu – dòng này sẽ bị bỏ qua khi nhập kho.'; return; }
     const base = num(qtyEl.value) * (num(factor.value) || 1);
     const cost = base ? num(total.value) / base : 0;
-    let txt = `→ Nhập kho ${qty(base)} ${ing.unit} · ${money(cost)}/${ing.unit}`;
+    const areaInfo = (window.AREA_LABELS || {})[ing.area];
+    let txt = `→ Nhập kho ${areaInfo ? areaInfo.icon + ' ' + areaInfo.label + ' · ' : ''}${qty(base)} ${ing.unit} · ${money(cost)}/${ing.unit}`;
     if (ing.last_price && cost) {
       const pct = (cost - ing.last_price) / ing.last_price * 100;
       if (Math.abs(pct) >= 3) txt += ` · ${pct > 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}% so với lần trước (${money(ing.last_price)})`;
@@ -195,22 +196,40 @@ function priceChart(canvas, series, unit) {
     },
   });
 }
-function dailyChart(canvas, rows) {
+function dailyChart(canvas, rows, splitAreas) {
   if (!canvas || !window.Chart) return;
   const c = chartColors();
-  new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: rows.map((r) => r.d.split('-').reverse().slice(0, 2).join('.')),
-      datasets: [
+  const datasets = splitAreas
+    ? [
+        { label: '🍳 Bếp – doanh thu', data: rows.map((r) => r.kitchen || 0), backgroundColor: '#ea580c', stack: 'rev' },
+        { label: '🍹 Quầy – doanh thu', data: rows.map((r) => r.bar || 0), backgroundColor: '#2563eb', stack: 'rev' },
+        { label: 'Giá vốn', data: rows.map((r) => r.cost), backgroundColor: '#a3a3a3', stack: 'cost' },
+      ]
+    : [
         { label: 'Doanh thu', data: rows.map((r) => r.rev), backgroundColor: '#0f766e' },
         { label: 'Giá vốn', data: rows.map((r) => r.cost), backgroundColor: '#f59e0b' },
-      ],
-    },
+      ];
+  new Chart(canvas, {
+    type: 'bar',
+    data: { labels: rows.map((r) => r.d.split('-').reverse().slice(0, 2).join('.')), datasets },
     options: {
       maintainAspectRatio: false,
       plugins: { legend: { labels: { color: c.text } }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${money(ctx.parsed.y)}` } } },
-      scales: { x: { ticks: { color: c.text }, grid: { display: false } }, y: { ticks: { color: c.text, callback: (v) => money(v) }, grid: { color: c.grid } } },
+      scales: {
+        x: { stacked: !!splitAreas, ticks: { color: c.text }, grid: { display: false } },
+        y: { stacked: !!splitAreas, ticks: { color: c.text, callback: (v) => money(v) }, grid: { color: c.grid } },
+      },
     },
   });
+}
+
+// ---------- copy tin nhắn đặt hàng ----------
+function copyText(id, btn) {
+  const el = document.getElementById(id);
+  const done = () => { const old = btn.textContent; btn.textContent = '✓ Đã copy'; setTimeout(() => { btn.textContent = old; }, 1500); };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(el.value).then(done, () => { el.select(); document.execCommand('copy'); done(); });
+  } else {
+    el.select(); document.execCommand('copy'); done();
+  }
 }

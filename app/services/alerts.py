@@ -12,7 +12,7 @@ from email.message import EmailMessage
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import config
+from .. import areas, config
 from ..db import AlertLog, Ingredient, SessionLocal, Setting
 from . import stock
 
@@ -32,9 +32,17 @@ def set_setting(session: Session, key: str, value: str) -> None:
         row.value = value
 
 
-def alert_recipients(session: Session) -> list[str]:
-    raw = get_setting(session, "alert_email", config.ALERT_EMAIL)
-    return [e.strip() for e in raw.replace(";", ",").split(",") if e.strip()]
+def _split_emails(raw: str) -> list[str]:
+    return [e.strip() for e in (raw or "").replace(";", ",").split(",") if e.strip()]
+
+
+def alert_recipients(session: Session, area: str | None = None) -> list[str]:
+    """Email nhận cảnh báo. Mỗi khu có thể có email riêng (bếp trưởng / quầy bar), trống thì dùng email chung."""
+    if area:
+        own = _split_emails(get_setting(session, f"alert_email_{area}", ""))
+        if own:
+            return own
+    return _split_emails(get_setting(session, "alert_email", config.ALERT_EMAIL))
 
 
 def alerts_enabled(session: Session) -> bool:
@@ -65,39 +73,51 @@ def check_low_stock(session: Session) -> list[tuple[Ingredient, float]]:
     return newly_low
 
 
-def build_email(low: list[tuple[Ingredient, float]], newly: list[tuple[Ingredient, float]] | None = None) -> tuple[str, str, str]:
+def build_email(
+    low: list[tuple[Ingredient, float]],
+    newly: list[tuple[Ingredient, float]] | None = None,
+    area: str | None = None,
+) -> tuple[str, str, str]:
     newly_ids = {i.id for i, _ in (newly or [])}
-    subject = f"[Kho nhà hàng] {len(low)} nguyên liệu dưới ngưỡng tồn tối thiểu"
+    where = f"Kho {areas.label(area)}" if area else "Kho nhà hàng"
+    subject = f"[{where}] {len(low)} nguyên liệu dưới ngưỡng tồn tối thiểu"
     rows_txt, rows_html = [], []
-    for ing, qty in low:
-        need = max(ing.min_stock - qty, 0)
-        mark = " (MỚI)" if ing.id in newly_ids else ""
-        rows_txt.append(
-            f"- {ing.name}{mark}: còn {stock.fmt_qty(qty)} {ing.unit} / ngưỡng {stock.fmt_qty(ing.min_stock)} "
-            f"→ cần nhập thêm ít nhất {stock.fmt_qty(need)} {ing.unit}"
-            + (f" (NCC: {ing.supplier.name})" if ing.supplier else "")
-        )
-        badge = "<b style='color:#c2410c'> MỚI</b>" if mark else ""
-        rows_html.append(
-            f"<tr><td style='padding:6px 10px'>{html_escape(ing.name)}{badge}</td>"
-            f"<td style='padding:6px 10px;text-align:right;color:#b91c1c'><b>{stock.fmt_qty(qty)}</b> {ing.unit}</td>"
-            f"<td style='padding:6px 10px;text-align:right'>{stock.fmt_qty(ing.min_stock)} {ing.unit}</td>"
-            f"<td style='padding:6px 10px;text-align:right'>{stock.fmt_qty(need)} {ing.unit}</td>"
-            f"<td style='padding:6px 10px'>{html_escape(ing.supplier.name) if ing.supplier else ''}</td></tr>"
-        )
-    link = f"\n\nMở ứng dụng: {config.APP_URL.rstrip('/')}/ingredients?status=low" if config.APP_URL else ""
-    text = "Các nguyên liệu sau đang dưới ngưỡng tồn kho tối thiểu:\n\n" + "\n".join(rows_txt) + link
+    present = [a for a in areas.AREA_KEYS if any(i.area == a for i, _ in low)]
+    for current in present:
+        if len(present) > 1 or not area:
+            title = f"{areas.AREAS[current]['icon']} {areas.label(current)}"
+            rows_txt.append(f"\n{title}")
+            rows_html.append(f"<tr><td colspan='5' style='padding:8px 10px;background:#f8fafc;font-weight:bold'>{title}</td></tr>")
+        for ing, qty in (row for row in low if row[0].area == current):
+            need = max(ing.min_stock - qty, 0)
+            to_par = max(stock.par_target(ing) - qty, need)
+            mark = " (MỚI)" if ing.id in newly_ids else ""
+            rows_txt.append(
+                f"- {ing.name}{mark}: còn {stock.fmt_qty(qty)} {ing.unit} / ngưỡng {stock.fmt_qty(ing.min_stock)} "
+                f"→ nên đặt khoảng {stock.fmt_qty(to_par)} {ing.unit}"
+                + (f" (NCC: {ing.supplier.name})" if ing.supplier else "")
+            )
+            badge = "<b style='color:#c2410c'> MỚI</b>" if mark else ""
+            rows_html.append(
+                f"<tr><td style='padding:6px 10px'>{html_escape(ing.name)}{badge}</td>"
+                f"<td style='padding:6px 10px;text-align:right;color:#b91c1c'><b>{stock.fmt_qty(qty)}</b> {html_escape(ing.unit)}</td>"
+                f"<td style='padding:6px 10px;text-align:right'>{stock.fmt_qty(ing.min_stock)} {html_escape(ing.unit)}</td>"
+                f"<td style='padding:6px 10px;text-align:right'>{stock.fmt_qty(to_par)} {html_escape(ing.unit)}</td>"
+                f"<td style='padding:6px 10px'>{html_escape(ing.supplier.name) if ing.supplier else ''}</td></tr>"
+            )
+    link = f"\n\nMở ứng dụng: {config.APP_URL.rstrip('/')}/orders" if config.APP_URL else ""
+    text = f"{where} – các nguyên liệu sau đang dưới ngưỡng tồn kho tối thiểu:\n" + "\n".join(rows_txt) + link
     html = (
         "<div style='font-family:Arial,sans-serif'>"
-        "<h2 style='color:#0f766e'>Cảnh báo hàng sắp hết</h2>"
+        f"<h2 style='color:#0f766e'>Cảnh báo hàng sắp hết – {html_escape(where)}</h2>"
         "<p>Các nguyên liệu sau đang dưới ngưỡng tồn kho tối thiểu:</p>"
         "<table style='border-collapse:collapse;border:1px solid #e5e7eb'>"
         "<tr style='background:#f0fdfa'><th style='padding:6px 10px;text-align:left'>Nguyên liệu</th>"
         "<th style='padding:6px 10px'>Còn</th><th style='padding:6px 10px'>Ngưỡng</th>"
-        "<th style='padding:6px 10px'>Cần nhập</th><th style='padding:6px 10px;text-align:left'>NCC</th></tr>"
+        "<th style='padding:6px 10px'>Nên đặt</th><th style='padding:6px 10px;text-align:left'>NCC</th></tr>"
         + "".join(rows_html)
         + "</table>"
-        + (f"<p><a href='{config.APP_URL.rstrip('/')}/ingredients?status=low'>Mở ứng dụng</a></p>" if config.APP_URL else "")
+        + (f"<p><a href='{config.APP_URL.rstrip('/')}/orders'>Mở danh sách đặt hàng</a></p>" if config.APP_URL else "")
         + "</div>"
     )
     return subject, text, html
@@ -165,15 +185,40 @@ def _new_entry(session: Session, recipients: list[str], subject: str, text: str)
     return entry
 
 
-def notify(session: Session, low: list[tuple[Ingredient, float]], newly=None) -> AlertLog:
-    """Gửi ngay báo cáo các nguyên liệu dưới ngưỡng (nút "Gửi báo cáo ngay")."""
-    recipients = alert_recipients(session)
-    subject, text, html = build_email(low, newly)
-    entry = _new_entry(session, recipients, subject, text)
-    if entry.status == "pending":
-        _dispatch(entry, recipients, subject, text, html, background=False)
-        session.refresh(entry)
-    return entry
+def plan_emails(
+    session: Session, low: list[tuple[Ingredient, float]], newly=None
+) -> list[tuple[list[str], str | None, list, list]]:
+    """Chia danh sách theo khu -> người nhận. Hai khu cùng người nhận thì gộp thành một email.
+
+    Trả về [(người nhận, khu hoặc None nếu gộp, low, newly)].
+    """
+    newly = newly or []
+    by_recipients: dict[tuple, list[str]] = {}
+    for area in areas.AREA_KEYS:
+        if any(i.area == area for i, _ in low):
+            by_recipients.setdefault(tuple(alert_recipients(session, area)), []).append(area)
+    plans = []
+    for recipients, area_list in by_recipients.items():
+        plans.append((
+            list(recipients),
+            area_list[0] if len(area_list) == 1 else None,
+            [row for row in low if row[0].area in area_list],
+            [row for row in newly if row[0].area in area_list],
+        ))
+    return plans
+
+
+def notify(session: Session, low: list[tuple[Ingredient, float]], newly=None) -> list[AlertLog]:
+    """Gửi ngay báo cáo các nguyên liệu dưới ngưỡng (nút "Gửi báo cáo ngay"), tách theo khu."""
+    entries = []
+    for recipients, area, low_part, newly_part in plan_emails(session, low, newly):
+        subject, text, html = build_email(low_part, newly_part, area)
+        entry = _new_entry(session, recipients, subject, text)
+        if entry.status == "pending":
+            _dispatch(entry, recipients, subject, text, html, background=False)
+            session.refresh(entry)
+        entries.append(entry)
+    return entries
 
 
 def _send_in_background(alert_id: int, recipients: list[str], subject: str, text: str, html: str) -> None:
@@ -194,10 +239,12 @@ def check_and_notify(session: Session, background: bool = True) -> list[tuple[In
     newly = check_low_stock(session)
     session.commit()
     if newly and alerts_enabled(session):
-        low = stock.low_stock(session)
-        recipients = alert_recipients(session)
-        subject, text, html = build_email(low, newly)
-        entry = _new_entry(session, recipients, subject, text)
-        if entry.status == "pending":
-            _dispatch(entry, recipients, subject, text, html, background)
+        # Chỉ gửi cho khu có hàng VỪA xuống dưới ngưỡng, kèm toàn bộ danh sách đang thiếu của khu đó.
+        new_areas = {i.area for i, _ in newly}
+        low = [row for row in stock.low_stock(session) if row[0].area in new_areas]
+        for recipients, area, low_part, newly_part in plan_emails(session, low, newly):
+            subject, text, html = build_email(low_part, newly_part, area)
+            entry = _new_entry(session, recipients, subject, text)
+            if entry.status == "pending":
+                _dispatch(entry, recipients, subject, text, html, background)
     return newly

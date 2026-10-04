@@ -1,6 +1,7 @@
 """Nghiệp vụ tồn kho: nhập lô, xuất theo FEFO/FIFO, kiểm kê, bán món."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -35,11 +36,25 @@ def stock_map(session: Session) -> dict[int, float]:
     return {ing_id: float(qty or 0.0) for ing_id, qty in rows}
 
 
-def stock_value(session: Session) -> float:
-    total = session.scalar(
-        select(func.coalesce(func.sum(Batch.quantity_remaining * Batch.unit_cost), 0.0))
+def stock_value(session: Session, area: str | None = None) -> float:
+    query = select(func.coalesce(func.sum(Batch.quantity_remaining * Batch.unit_cost), 0.0))
+    if area:
+        query = query.join(Ingredient, Ingredient.id == Batch.ingredient_id).where(Ingredient.area == area)
+    return float(session.scalar(query) or 0.0)
+
+
+def stock_value_by_category(session: Session, area: str | None = None) -> list[tuple[str, str, float]]:
+    """Giá trị tồn kho theo (khu, nhóm hàng), lớn nhất trước."""
+    query = (
+        select(Ingredient.area, Ingredient.category, func.sum(Batch.quantity_remaining * Batch.unit_cost))
+        .join(Ingredient, Ingredient.id == Batch.ingredient_id)
+        .where(Batch.quantity_remaining > EPS)
+        .group_by(Ingredient.area, Ingredient.category)
     )
-    return float(total or 0.0)
+    if area:
+        query = query.where(Ingredient.area == area)
+    rows = [(a, c, float(v or 0)) for a, c, v in session.execute(query).all()]
+    return sorted(rows, key=lambda r: -r[2])
 
 
 def receive(
@@ -171,9 +186,9 @@ def dish_cost(dish: Dish) -> float:
     return sum(item.quantity * item.ingredient.last_price for item in dish.items)
 
 
-def apply_stocktake(session: Session, counts: dict[int, float], note: str = "") -> Stocktake:
+def apply_stocktake(session: Session, counts: dict[int, float], note: str = "", area: str = "") -> Stocktake:
     """Kiểm kê: so sánh tồn lý thuyết với thực tế và điều chỉnh kho."""
-    stocktake = Stocktake(note=note)
+    stocktake = Stocktake(note=note, area=area or "")
     session.add(stocktake)
     session.flush()
     ref = f"Kiểm kê #{stocktake.id}"
@@ -206,21 +221,64 @@ def _avg_cost(session: Session, ingredient_id: int) -> float:
     return float(value / qty) if qty else 0.0
 
 
-def low_stock(session: Session) -> list[tuple[Ingredient, float]]:
+def active_ingredients(session: Session, area: str | None = None) -> list[Ingredient]:
+    query = select(Ingredient).where(Ingredient.active == 1)
+    if area:
+        query = query.where(Ingredient.area == area)
+    return list(session.scalars(query.order_by(Ingredient.category, Ingredient.name)).all())
+
+
+def low_stock(session: Session, area: str | None = None) -> list[tuple[Ingredient, float]]:
     stocks = stock_map(session)
-    items = session.scalars(select(Ingredient).where(Ingredient.active == 1).order_by(Ingredient.name)).all()
+    items = sorted(active_ingredients(session, area), key=lambda i: i.name)
     return [(i, stocks.get(i.id, 0.0)) for i in items if i.min_stock > 0 and stocks.get(i.id, 0.0) < i.min_stock]
 
 
-def expiring_batches(session: Session, days: int) -> list[Batch]:
+def expiring_batches(session: Session, days: int, area: str | None = None) -> list[Batch]:
     limit = date.today() + timedelta(days=days)
-    return list(
-        session.scalars(
-            select(Batch)
-            .where(Batch.quantity_remaining > EPS, Batch.expiry_date.is_not(None), Batch.expiry_date <= limit)
-            .order_by(Batch.expiry_date)
-        ).all()
+    query = select(Batch).where(
+        Batch.quantity_remaining > EPS, Batch.expiry_date.is_not(None), Batch.expiry_date <= limit
     )
+    if area:
+        query = query.join(Ingredient, Ingredient.id == Batch.ingredient_id).where(Ingredient.area == area)
+    return list(session.scalars(query.order_by(Batch.expiry_date)).all())
+
+
+def par_target(ingredient: Ingredient) -> float:
+    """Mức tồn chuẩn để đặt hàng lên tới: par_level, hoặc gấp đôi ngưỡng tối thiểu."""
+    return ingredient.par_level if ingredient.par_level and ingredient.par_level > 0 else ingredient.min_stock * 2
+
+
+@dataclass
+class OrderLine:
+    ingredient: Ingredient
+    stock: float
+    target: float
+    quantity: float  # theo đơn vị kho
+    packs: int | None  # số đơn vị mua (thùng, bao...) nếu có quy đổi
+    urgent: bool  # đã dưới ngưỡng tối thiểu
+
+
+def order_suggestions(session: Session, area: str | None = None) -> list[tuple[str, list[OrderLine]]]:
+    """Gợi ý đặt hàng: hàng dưới ngưỡng (gấp) hoặc dưới mức tồn chuẩn, gom theo nhà cung cấp."""
+    stocks = stock_map(session)
+    groups: dict[str, list[OrderLine]] = {}
+    for ing in active_ingredients(session, area):
+        stock = stocks.get(ing.id, 0.0)
+        target = par_target(ing)
+        urgent = ing.min_stock > 0 and stock < ing.min_stock
+        below_par = ing.par_level > 0 and stock < ing.par_level
+        if not (urgent or below_par) or target <= stock + EPS:
+            continue
+        need = target - stock
+        packs = None
+        if ing.pack_unit and ing.pack_size and ing.pack_size > 0:
+            packs = max(1, math.ceil(need / ing.pack_size - 1e-9))
+            need = packs * ing.pack_size
+        groups.setdefault(ing.supplier.name if ing.supplier else "Chưa có nhà cung cấp", []).append(
+            OrderLine(ing, stock, target, round(need, 3), packs, urgent)
+        )
+    return sorted(groups.items(), key=lambda kv: (kv[0] == "Chưa có nhà cung cấp", kv[0]))
 
 
 def write_off_expired(session: Session, when: datetime | None = None) -> list[tuple[Ingredient, float]]:

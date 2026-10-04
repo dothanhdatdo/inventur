@@ -1,17 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Kiểm kê #{{ st.id }}{% endblock %}
-{% block heading %}Báo cáo kiểm kê #{{ st.id }}{% endblock %}
+{% block heading %}Báo cáo kiểm kê #{{ st.id }} – {{ area_label(st.area) if st.area else 'cả hai khu' }}{% endblock %}
 {% block actions %}<button class="btn" onclick="window.print()">In</button><a class="btn" href="/stocktake">← Kiểm kê</a>{% endblock %}
 {% block content %}
 <div class="kpis">
   <div class="kpi"><div class="label">Thời gian</div><div class="value" style="font-size:1.1rem">{{ st.created_at|vdate }}</div><div class="small muted">{{ st.note }}</div></div>
   <div class="kpi alert"><div class="label">Hao hụt (thiếu)</div><div class="value">{{ loss|money }}</div></div>
   <div class="kpi"><div class="label">Dư so với hệ thống</div><div class="value">{{ gain|money }}</div></div>
+  {% if by_area|length > 1 %}{% for key, b in by_area.items() %}
+  <div class="kpi"><div class="label">{{ AREAS[key].icon }} {{ AREAS[key].label }}: hao hụt</div><div class="value">{{ b.loss|money }}</div><div class="small muted">{{ b.count }} mục · dư {{ b.gain|money }}</div></div>
+  {% endfor %}{% endif %}
 </div>
 <div class="card"><div class="table-wrap"><table>
   <thead><tr><th>Nguyên liệu</th><th class="num">Lý thuyết</th><th class="num">Thực tế</th><th class="num">Chênh lệch</th><th class="num">Giá trị</th></tr></thead>
   <tbody>{% for l in lines %}
-  <tr><td>{{ l.ingredient.name }}</td><td class="num">{{ l.expected|qty }} {{ l.ingredient.unit }}</td><td class="num">{{ l.counted|qty }}</td>
+  <tr><td>{% if by_area|length > 1 %}{{ AREAS[l.ingredient.area].icon }} {% endif %}{{ l.ingredient.name }}</td><td class="num">{{ l.expected|qty }} {{ l.ingredient.unit }}</td><td class="num">{{ l.counted|qty }}</td>
     <td class="num">{{ '+' if l.variance > 0 }}{{ l.variance|qty }}</td>
     <td class="num"><span class="pill {{ 'pill-danger' if l.variance_value < -0.005 else ('pill-ok' if l.variance_value > 0.005 else 'pill-muted') }}">{{ l.variance_value|money }}</span></td></tr>
   {% endfor %}</tbody>

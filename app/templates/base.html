@@ -18,6 +18,7 @@
   ("/recipes", "Định lượng món", "M5 11h14a7 7 0 0 1-14 0zM12 4v4"),
   ("/sales", "Bán hàng", "M4 19h16M7 16V10M12 16V6M17 16v-4"),
   ("/stocktake", "Kiểm kê", "M9 5h6M9 3h6v4H9zM6 5H5v16h14V5h-1M9 13l2 2 4-4"),
+  ("/orders", "Cần đặt hàng", "M3 4h2l2.5 11h11L21 7H6.5M9 20a1 1 0 1 0 0-.1M18 20a1 1 0 1 0 0-.1"),
   ("/reports", "Báo cáo", "M4 20V4M4 20h16M8 16l4-5 3 3 5-6"),
   ("/suppliers", "Nhà cung cấp", "M3 7h11v9H3zM14 10h4l3 3v3h-7M7 19a2 2 0 1 0 0-.1M17 19a2 2 0 1 0 0-.1"),
   ("/settings", "Cài đặt & cảnh báo", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z"),
@@ -28,6 +29,12 @@
       <span class="brand-mark">MW</span>
       <span><strong>Mai Wok</strong><small>Quản lý kho</small></span>
     </a>
+    <div class="area-switch" role="group" aria-label="Khu vực kho">
+      <a href="/area/all?next={{ path }}" class="{{ 'on' if not area }}">Tất cả</a>
+      {% for key, info in AREAS.items() %}
+      <a href="/area/{{ key }}?next={{ path }}" class="{{ 'on' if area == key }}" title="{{ info.label_de }}">{{ info.icon }} {{ info.label }}</a>
+      {% endfor %}
+    </div>
     <nav>
       {% for href, label, icon in nav %}
       {% set active = (href == "/" and path == "/") or (href != "/" and path.startswith(href) and not (href == "/invoices" and path.startswith("/invoices/scan"))) %}
@@ -48,7 +55,7 @@
       <button class="menu-btn" type="button" aria-label="Mở menu" onclick="document.body.classList.toggle('nav-open')">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-      <h1>{% block heading %}{% endblock %}</h1>
+      <h1>{% block heading %}{% endblock %}{% if area %} <span class="area-tag area-{{ area }}">{{ AREAS[area].icon }} {{ area_label(area) }}</span>{% endif %}</h1>
       <div class="topbar-actions">{% block actions %}{% endblock %}</div>
     </header>
     {% if flash %}<div class="flash flash-{{ flash.kind }}" role="status">{{ flash.message }}</div>{% endif %}

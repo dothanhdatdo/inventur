@@ -6,8 +6,15 @@
   <form class="card" method="post" action="/settings/alerts">
     <div class="card-head"><h2>📧 Email cảnh báo</h2>
       {% if browser_mode %}<span class="pill pill-ok">Gửi qua FormSubmit</span>{% elif smtp_configured %}<span class="pill pill-ok">SMTP đã cấu hình</span>{% else %}<span class="pill pill-warn">Chưa cấu hình SMTP</span>{% endif %}</div>
-    <label for="a-email">Gửi cảnh báo tới (nhiều email cách nhau bằng dấu phẩy)</label>
+    <label for="a-email">Email chung (nhiều email cách nhau bằng dấu phẩy)</label>
     <input id="a-email" name="alert_email" value="{{ alert_email }}" placeholder="ban@example.com">
+    <div class="form-grid" style="margin-top:10px">
+      {% for key, info in AREAS.items() %}
+      <div><label for="a-email-{{ key }}">{{ info.icon }} Riêng cho {{ info.label }} · {{ info.label_de }}</label>
+        <input id="a-email-{{ key }}" name="alert_email_{{ key }}" value="{{ area_emails[key] }}" placeholder="trống = dùng email chung"></div>
+      {% endfor %}
+    </div>
+    <p class="hint">Ví dụ: hàng bếp sắp hết báo cho bếp trưởng, đồ uống sắp hết báo cho người quầy bar. Để trống thì gửi về email chung.</p>
     <label class="check" style="margin-top:12px"><input type="checkbox" name="alerts_enabled" value="1" {{ 'checked' if alerts_enabled }}> Tự động gửi email khi nguyên liệu xuống dưới ngưỡng tồn</label>
     <p class="hint">Mỗi nguyên liệu chỉ được báo một lần khi vừa xuống dưới ngưỡng; nhập thêm hàng lên trên ngưỡng thì cảnh báo được đặt lại.</p>
     <div class="form-actions"><button class="btn btn-primary">Lưu</button></div>
@@ -25,7 +32,7 @@
     {% else %}<p class="hint">Gửi từ <strong>{{ smtp_from }}</strong> qua {{ smtp_host }}.</p>{% endif %}
   </form>
   <div class="card">
-    <div class="card-head"><h2>Báo cáo hàng sắp hết</h2><span class="pill {{ 'pill-danger' if low_count else 'pill-ok' }}">{{ low_count }} dưới ngưỡng</span></div>
+    <div class="card-head"><h2>Báo cáo hàng sắp hết {{ '– ' ~ AREAS[area].label if area }}</h2><span class="pill {{ 'pill-danger' if low_count else 'pill-ok' }}">{{ low_count }} dưới ngưỡng</span></div>
     <form method="post" action="/settings/send-report"><button class="btn btn-primary">Gửi báo cáo ngay</button>
       <a class="btn" href="/ingredients?status=low">Xem danh sách</a></form>
     <h2 style="margin:18px 0 8px">Lịch sử email</h2>
@@ -83,15 +90,21 @@
 </div>
 
 <form class="card" method="post" action="/settings/thresholds">
-  <div class="card-head"><h2>Ngưỡng tồn tối thiểu</h2><button class="btn btn-primary">Lưu ngưỡng</button></div>
-  <p class="hint" style="margin-top:-6px">Khi tồn kho thấp hơn ngưỡng, nguyên liệu được đánh dấu “Sắp hết” và hệ thống gửi email. Đặt 0 để tắt cảnh báo cho nguyên liệu đó.</p>
+  <div class="card-head"><h2>Ngưỡng tồn tối thiểu & mức tồn chuẩn {{ '– ' ~ area_label(area) if area }}</h2><button class="btn btn-primary">Lưu</button></div>
+  <p class="hint" style="margin-top:-6px"><strong>Ngưỡng tối thiểu</strong>: tồn thấp hơn mức này thì báo “Sắp hết” và gửi email (0 = tắt). <strong>Mức tồn chuẩn</strong>: danh sách “Cần đặt hàng” gợi ý đặt lên tới mức này (trống = gấp đôi ngưỡng).</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Nguyên liệu</th><th class="num">Tồn hiện tại</th><th class="num">Ngưỡng tối thiểu</th><th></th></tr></thead>
-    <tbody>{% for cat, items in groups.items() %}
-      <tr class="group-row"><td colspan="4">{{ cat }}</td></tr>
+    <thead><tr><th>Nguyên liệu</th><th class="num">Tồn hiện tại</th><th class="num">Ngưỡng tối thiểu</th><th class="num">Mức tồn chuẩn</th><th></th></tr></thead>
+    <tbody>
+    {% set ns = namespace(area=None) %}
+    {% for (ing_area, cat), items in groups.items() %}
+      {% if not area and ing_area != ns.area %}{% set ns.area = ing_area %}
+      <tr class="area-row"><td colspan="5"><span class="area-tag area-{{ ing_area }}" style="margin:0">{{ AREAS[ing_area].icon }} {{ area_label(ing_area) }}</span></td></tr>
+      {% endif %}
+      <tr class="group-row"><td colspan="5">{{ cat }}</td></tr>
       {% for i in items %}{% set s = stocks.get(i.id, 0) %}
       <tr class="{{ 'is-low' if i.min_stock > 0 and s < i.min_stock }}"><td>{{ i.name }}</td><td class="num">{{ s|qty }} {{ i.unit }}</td>
         <td class="num"><input class="qty-input" name="min_{{ i.id }}" inputmode="decimal" value="{{ i.min_stock|qty }}" aria-label="Ngưỡng {{ i.name }}"> {{ i.unit }}</td>
+        <td class="num"><input class="qty-input" name="par_{{ i.id }}" inputmode="decimal" value="{{ i.par_level|qty if i.par_level else '' }}" placeholder="{{ (i.min_stock * 2)|qty }}" aria-label="Mức tồn chuẩn {{ i.name }}"> {{ i.unit }}</td>
         <td>{% if i.min_stock > 0 and s < i.min_stock %}<span class="pill pill-warn">Sắp hết</span>{% endif %}</td></tr>
       {% endfor %}
     {% endfor %}</tbody>

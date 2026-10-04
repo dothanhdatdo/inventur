@@ -16,16 +16,23 @@ Chưa có API key thì app chạy ở **chế độ demo**: ảnh hoá đơn v�
 
 ## Tính năng
 
+- **Hai khu kho: 🍳 Bếp (Küche) và 🍹 Quầy (Theke – đồ uống)**
+  - Mỗi nguyên liệu và mỗi món/đồ uống thuộc một khu. Nút chuyển **Tất cả / Bếp / Quầy** ở thanh bên lọc mọi trang: tồn kho, kiểm kê, ngưỡng, bán hàng, báo cáo, đặt hàng.
+  - Trang tổng quan khi xem "Tất cả" có thẻ riêng cho từng khu: giá trị tồn, số hàng dưới ngưỡng, sắp hết hạn, doanh thu, **food cost** (bếp) / **beverage cost** (quầy), hao hụt.
+  - **Kiểm kê (Inventur) riêng từng khu**, có bản in phiếu đếm (ngày, người đếm, đơn vị và quy đổi thùng/két).
+  - Hoá đơn có cả đồ ăn lẫn đồ uống (vd. Großmarkt) tự **chia tiền theo khu**. Hàng mới từ hoá đơn được đoán khu theo tên (Bier, Wein, Saft, Wasser, Cola…) và VAT (ở Đức đồ uống 19 %, thực phẩm 7 %); sửa lại được ở trang nguyên liệu.
+  - **Email cảnh báo theo khu**: có thể đặt email riêng cho bếp trưởng và cho quầy bar; trống thì gửi về email chung.
+  - Dữ liệu từ bản cũ (đã lưu trong trình duyệt) được **tự chuyển sang dạng mới** khi mở app: đồ uống sang Quầy, còn lại sang Bếp.
+- **Cần đặt hàng**: gợi ý theo ngưỡng tối thiểu (gấp) và **mức tồn chuẩn** (Par-Bestand), làm tròn theo thùng/két/bao, gom theo nhà cung cấp, kèm **tin nhắn đặt hàng tiếng Đức** để copy gửi đi.
 - **Nhập hàng**
   - 📷 *Quét hoá đơn*: chụp ảnh/tải JPG, PNG, PDF → AI (Google Gemini miễn phí, Claude hoặc GPT-4o) bóc tách nhà cung cấp, số và ngày hoá đơn, mặt hàng, số lượng, đơn giá, thành tiền, VAT.
   - Màn hình *đối soát*: ảnh hoá đơn bên trái, dữ liệu bên phải để sửa, gắn nguyên liệu, quy đổi đơn vị (vd. 1 bao = 18 kg, 1 thùng = 24 lon), nhập hạn sử dụng, rồi bấm **Nhập kho**.
   - Tự khớp tên hàng trên hoá đơn với nguyên liệu trong kho (hiểu cả từ ghép tiếng Đức) và **ghi nhớ mapping** theo từng nhà cung cấp cho lần quét sau.
   - ✍️ *Nhập thủ công*: tạo phiếu nhập gõ tay, hoặc nhập nhanh từng nguyên liệu.
 - **Tồn kho**: theo lô, xuất kho theo hạn dùng sớm nhất (FEFO/FIFO), ghi hao hụt, huỷ lô quá hạn, nhật ký xuất nhập.
-- **Ngưỡng tồn & cảnh báo**: đặt ngưỡng tối thiểu cho từng nguyên liệu (trang *Cài đặt & cảnh báo*). Khi tồn xuống dưới ngưỡng, app **tự gửi email** (mặc định tới `dothanhdatdo@gmail.com`, đổi được, nhiều địa chỉ cách nhau bằng dấu phẩy). Mỗi nguyên liệu chỉ báo một lần cho tới khi nhập lại lên trên ngưỡng. Có nút “Gửi báo cáo ngay”.
-- **Định lượng món (BOM)** và **bán hàng**: ghi số suất bán, kho tự trừ theo định lượng, tính giá vốn và food cost.
-- **Kiểm kê (Inventur)**: nhập số đếm thực tế, app điều chỉnh tồn và báo cáo hao hụt theo giá trị.
-- **Báo cáo**: doanh thu và giá vốn theo ngày, food cost %, tiền nhập hàng, hao hụt, biểu đồ biến động giá nhập theo nhà cung cấp.
+- **Ngưỡng tồn & cảnh báo**: ngưỡng tối thiểu và mức tồn chuẩn cho từng nguyên liệu (trang *Cài đặt & cảnh báo*). Khi tồn xuống dưới ngưỡng, app **tự gửi email**. Mỗi nguyên liệu chỉ báo một lần cho tới khi nhập lại lên trên ngưỡng. Có nút “Gửi báo cáo ngay”.
+- **Định lượng món (BOM)** và **bán hàng**: món bếp trừ kho Bếp, đồ uống trừ kho Quầy (vd. Weißwein 0,2 l), tính giá vốn và cost %.
+- **Báo cáo**: bảng Bếp/Quầy (doanh thu, giá vốn, cost %, tiền nhập, hao hụt, tồn kho), biểu đồ doanh thu theo ngày tách khu, giá trị tồn theo nhóm hàng, biến động giá nhập theo nhà cung cấp.
 
 ## AI đọc hoá đơn miễn phí (Google Gemini)
 
@@ -99,13 +106,14 @@ pytest
 │   ├── main.py           # các trang web (FastAPI)
 │   ├── db.py             # mô hình dữ liệu (SQLAlchemy)
 │   ├── browser.py        # chạy app trong Pyodide
+│   ├── areas.py          # khu Bếp / Quầy, đoán khu cho hàng mới
 │   ├── seed.py           # dữ liệu mẫu
 │   ├── services/
-│   │   ├── stock.py      # nhập/xuất kho theo lô, kiểm kê, bán món
+│   │   ├── stock.py      # nhập/xuất kho theo lô, kiểm kê, bán món, gợi ý đặt hàng
 │   │   ├── ocr.py        # AI đọc hoá đơn (Gemini / Claude / GPT-4o / demo)
 │   │   ├── matching.py   # khớp tên hàng trên HĐ với nguyên liệu, quy đổi đơn vị
 │   │   ├── invoices.py   # quy trình hoá đơn: nháp → duyệt → nhập kho
-│   │   └── alerts.py     # cảnh báo sắp hết + gửi email
+│   │   └── alerts.py     # cảnh báo sắp hết + gửi email (theo khu)
 │   ├── templates/        # giao diện (Jinja2)
 │   └── static/           # CSS, JS, Chart.js, hoá đơn mẫu
 ├── tests/

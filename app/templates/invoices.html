@@ -5,14 +5,17 @@
 {% block content %}
 <div class="card">
   <div class="table-wrap"><table>
-    <thead><tr><th>#</th><th>Ngày HĐ</th><th>Nhà cung cấp</th><th>Số HĐ</th><th class="num">Dòng</th><th class="num">Tiền hàng</th><th>Nguồn</th><th>Trạng thái</th></tr></thead>
+    <thead><tr><th>#</th><th>Ngày HĐ</th><th>Nhà cung cấp</th><th>Số HĐ</th><th class="num">Dòng</th><th class="num">Tiền hàng</th><th class="num">🍳 Bếp</th><th class="num">🍹 Quầy</th><th>Nguồn</th><th>Trạng thái</th></tr></thead>
     <tbody>{% for inv in invoices %}
     <tr><td><a href="/invoices/{{ inv.id }}">#{{ inv.id }}</a></td><td class="nowrap">{{ inv.invoice_date|vdate }}</td>
       <td>{{ inv.supplier.name if inv.supplier else (inv.supplier_name_raw or '—') }}</td><td class="small">{{ inv.invoice_number }}</td>
       <td class="num">{{ inv.lines|length }}</td><td class="num">{{ inv.subtotal|money }}</td>
+      {% set t = area_totals[inv.id] %}
+      <td class="num small {{ 'muted' if area == 'bar' }}">{{ t.get('kitchen', 0)|money if t.get('kitchen') else '–' }}</td>
+      <td class="num small {{ 'muted' if area == 'kitchen' }}">{{ t.get('bar', 0)|money if t.get('bar') else '–' }}</td>
       <td><span class="pill pill-muted">{{ ('AI · ' if inv.source not in ('demo', 'manual') else '') ~ ocr_labels.get(inv.source, inv.source) }}</span>{% if inv.file_path %} 📎{% endif %}</td>
       <td>{% if inv.status == 'confirmed' %}<span class="pill pill-ok">Đã nhập kho</span>{% else %}<a class="pill pill-warn" href="/invoices/{{ inv.id }}">Chờ duyệt</a>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="8" class="empty">Chưa có hoá đơn. <a href="/invoices/scan">Nhập hàng ngay</a>.</td></tr>{% endfor %}</tbody>
+    {% else %}<tr><td colspan="10" class="empty">Chưa có hoá đơn. <a href="/invoices/scan">Nhập hàng ngay</a>.</td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 {% endblock %}

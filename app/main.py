@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config
+from . import areas, config
 from .db import (
     Batch,
     Dish,
@@ -88,6 +88,8 @@ templates.env.globals["ocr_labels"] = {
     "anthropic": "Claude", "openai": "GPT-4o", "gemini": "Gemini", "demo": "Demo", "manual": "Thủ công",
 }
 templates.env.globals["today"] = date.today
+templates.env.globals["AREAS"] = areas.AREAS
+templates.env.globals["area_label"] = areas.label
 
 
 # ---------------------------------------------------------------- tiện ích
@@ -104,7 +106,14 @@ def render(request: Request, name: str, **ctx):
     ctx["auth_enabled"] = bool(config.APP_PASSWORD)
     ctx["path"] = request.url.path
     ctx["expiry_days"] = config.EXPIRY_WARNING_DAYS
+    ctx.setdefault("area", current_area(request))
     return templates.TemplateResponse(request, name, ctx)
+
+
+def current_area(request: Request) -> str | None:
+    """Khu đang xem (chọn ở thanh bên): "kitchen", "bar" hoặc None = tất cả."""
+    value = request.session.get("area")
+    return value if value in areas.AREAS else None
 
 
 def flash(request: Request, message: str, kind: str = "ok") -> None:
@@ -115,11 +124,12 @@ def after_stock_change(request: Request, db: Session) -> None:
     """Commit + kiểm tra ngưỡng tồn; gửi email nếu có nguyên liệu vừa xuống dưới ngưỡng."""
     newly = alerts.check_and_notify(db)
     if newly:
-        names = ", ".join(i.name for i, _ in newly)
+        names = ", ".join(f"{i.name} ({areas.AREAS[i.area]['label']})" for i, _ in newly)
+        recipients = sorted({email for i, _ in newly for email in alerts.alert_recipients(db, i.area)})
         if not alerts.alerts_enabled(db):
             msg = f"Dưới ngưỡng tồn: {names} (cảnh báo email đang tắt)"
         elif alerts.smtp_configured():
-            msg = f"Dưới ngưỡng tồn: {names} — đã gửi email tới {', '.join(alerts.alert_recipients(db))}"
+            msg = f"Dưới ngưỡng tồn: {names} — đã gửi email tới {', '.join(recipients)}"
         else:
             msg = f"Dưới ngưỡng tồn: {names} — chưa gửi được email vì chưa cấu hình SMTP (xem Cài đặt)"
         request.session["alert_flash"] = msg
@@ -158,6 +168,16 @@ def healthz():
     return {"ok": True}
 
 
+@app.get("/area/{key}")
+def switch_area(request: Request, key: str, next: str = "/"):
+    """Chuyển khu đang xem: kitchen | bar | all."""
+    if key in areas.AREAS:
+        request.session["area"] = key
+    else:
+        request.session.pop("area", None)
+    return redirect(next if next.startswith("/") and not next.startswith("//") else "/")
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/"):
     return render(request, "login.html", next=next)
@@ -182,38 +202,78 @@ def logout(request: Request):
 # ---------------------------------------------------------------- dashboard
 
 
+def _sales_by_area(db: Session, since: datetime) -> dict[str, tuple[float, float]]:
+    rows = db.execute(
+        select(Dish.area, func.coalesce(func.sum(Sale.revenue), 0), func.coalesce(func.sum(Sale.cost), 0))
+        .join(Dish, Dish.id == Sale.dish_id)
+        .where(Sale.sold_at >= since)
+        .group_by(Dish.area)
+    ).all()
+    return {a: (float(r), float(c)) for a, r, c in rows}
+
+
+def _losses_by_area(db: Session, since: datetime) -> dict[str, float]:
+    rows = db.execute(
+        select(Ingredient.area, func.coalesce(func.sum(-Movement.quantity * Movement.unit_cost), 0))
+        .join(Ingredient, Ingredient.id == Movement.ingredient_id)
+        .where(Movement.kind.in_(["WASTE", "ADJUST"]), Movement.quantity < 0, Movement.created_at >= since)
+        .group_by(Ingredient.area)
+    ).all()
+    return {a: float(v) for a, v in rows}
+
+
+def _purchases_by_area(db: Session, since: datetime) -> dict[str, float]:
+    rows = db.execute(
+        select(Ingredient.area, func.coalesce(func.sum(Batch.quantity_initial * Batch.unit_cost), 0))
+        .join(Ingredient, Ingredient.id == Batch.ingredient_id)
+        .where(Batch.source == "purchase", Batch.received_at >= since)
+        .group_by(Ingredient.area)
+    ).all()
+    return {a: float(v) for a, v in rows}
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_session)):
+    area = current_area(request)
     stocks = stock.stock_map(db)
     week_ago = datetime.now() - timedelta(days=7)
-    sales = db.execute(
-        select(func.coalesce(func.sum(Sale.revenue), 0), func.coalesce(func.sum(Sale.cost), 0)).where(
-            Sale.sold_at >= week_ago
-        )
-    ).one()
-    waste = db.scalar(
-        select(func.coalesce(func.sum(-Movement.quantity * Movement.unit_cost), 0)).where(
-            Movement.kind.in_(["WASTE", "ADJUST"]), Movement.quantity < 0, Movement.created_at >= week_ago
-        )
-    )
-    recent = db.scalars(
+    sales = _sales_by_area(db, week_ago)
+    losses = _losses_by_area(db, week_ago)
+    keys = [area] if area else list(areas.AREA_KEYS)
+    cards = []
+    for key in areas.AREA_KEYS:
+        revenue, cost = sales.get(key, (0.0, 0.0))
+        cards.append({
+            "key": key,
+            "value": stock.stock_value(db, key),
+            "low": len(stock.low_stock(db, key)),
+            "expiring": len(stock.expiring_batches(db, config.EXPIRY_WARNING_DAYS, key)),
+            "revenue": revenue,
+            "cost": cost,
+            "waste": losses.get(key, 0.0),
+        })
+    recent_query = (
         select(Movement)
         .options(selectinload(Movement.ingredient))
+        .join(Ingredient, Ingredient.id == Movement.ingredient_id)
         .where(Movement.kind != "SALE")
-        .order_by(Movement.created_at.desc(), Movement.id.desc())
-        .limit(10)
-    ).all()
+    )
+    if area:
+        recent_query = recent_query.where(Ingredient.area == area)
+    recent = db.scalars(recent_query.order_by(Movement.created_at.desc(), Movement.id.desc()).limit(10)).all()
     drafts = db.scalars(select(Invoice).where(Invoice.status == "draft").order_by(Invoice.created_at.desc())).all()
     return render(
         request,
         "dashboard.html",
-        ingredient_count=db.scalar(select(func.count(Ingredient.id)).where(Ingredient.active == 1)),
-        stock_value=stock.stock_value(db),
-        low=stock.low_stock(db),
-        expiring=stock.expiring_batches(db, config.EXPIRY_WARNING_DAYS),
-        revenue=float(sales[0]),
-        cogs=float(sales[1]),
-        waste=float(waste or 0),
+        ingredient_count=len(stock.active_ingredients(db, area)),
+        stock_value=stock.stock_value(db, area),
+        low=stock.low_stock(db, area),
+        expiring=stock.expiring_batches(db, config.EXPIRY_WARNING_DAYS, area),
+        revenue=sum(sales.get(k, (0, 0))[0] for k in keys),
+        cogs=sum(sales.get(k, (0, 0))[1] for k in keys),
+        waste=sum(losses.get(k, 0.0) for k in keys),
+        area_cards=cards,
+        orders_count=sum(len(lines) for _, lines in stock.order_suggestions(db, area)),
         recent=recent,
         drafts=drafts,
         stocks=stocks,
@@ -223,29 +283,36 @@ def dashboard(request: Request, db: Session = Depends(get_session)):
 # ---------------------------------------------------------------- nguyên liệu
 
 
-def _ingredient_form_ctx(db: Session):
+def _ingredient_form_ctx(db: Session, area: str | None = None):
+    used = {c for c in db.scalars(select(Ingredient.category)).all() if c}
+    preset = [c for key in ([area] if area else areas.AREA_KEYS) for c in areas.AREAS[key]["categories"]]
     return {
         "suppliers": db.scalars(select(Supplier).order_by(Supplier.name)).all(),
-        "categories": sorted({c for c in db.scalars(select(Ingredient.category)).all() if c}),
-        "units": ["kg", "g", "l", "ml", "cái", "quả", "bó", "gói", "hộp", "chai", "lon"],
+        "categories": preset + sorted(used - set(preset)),
+        "units": ["kg", "g", "l", "ml", "cái", "quả", "bó", "gói", "hộp", "chai", "lon", "két", "thùng"],
     }
 
 
 @app.get("/ingredients", response_class=HTMLResponse)
 def ingredient_list(request: Request, q: str = "", category: str = "", status: str = "", db: Session = Depends(get_session)):
+    area = current_area(request)
     query = select(Ingredient).options(selectinload(Ingredient.supplier)).where(Ingredient.active == 1)
+    if area:
+        query = query.where(Ingredient.area == area)
     if category:
         query = query.where(Ingredient.category == category)
-    items = db.scalars(query.order_by(Ingredient.category, Ingredient.name)).all()
+    items = db.scalars(query.order_by(Ingredient.area, Ingredient.category, Ingredient.name)).all()
     if q:
         key = matching.normalize(q)
         items = [i for i in items if key in matching.normalize(i.name)]
     stocks = stock.stock_map(db)
     if status == "low":
         items = [i for i in items if i.min_stock > 0 and stocks.get(i.id, 0) < i.min_stock]
-    groups: dict[str, list] = defaultdict(list)
+    groups: dict[tuple[str, str], list] = defaultdict(list)
     for i in items:
-        groups[i.category].append(i)
+        groups[(i.area, i.category)].append(i)
+    ctx = _ingredient_form_ctx(db, area)
+    ctx["categories"] = sorted({i.category for i in stock.active_ingredients(db, area)})
     return render(
         request,
         "ingredients.html",
@@ -254,13 +321,17 @@ def ingredient_list(request: Request, q: str = "", category: str = "", status: s
         q=q,
         category=category,
         status=status,
-        **_ingredient_form_ctx(db),
+        **ctx,
     )
 
 
 @app.get("/ingredients/new", response_class=HTMLResponse)
 def ingredient_new(request: Request, name: str = "", db: Session = Depends(get_session)):
-    return render(request, "ingredient_form.html", item=None, prefill_name=name, **_ingredient_form_ctx(db))
+    area = current_area(request)
+    return render(
+        request, "ingredient_form.html", item=None, prefill_name=name,
+        default_area=area or (areas.guess_area(name) if name else areas.KITCHEN), **_ingredient_form_ctx(db, area),
+    )
 
 
 def _fill_ingredient(item: Ingredient, form) -> None:
@@ -270,6 +341,8 @@ def _fill_ingredient(item: Ingredient, form) -> None:
     item.pack_unit = form.get("pack_unit", "").strip()
     item.pack_size = parse_float(form.get("pack_size"), 1.0) or 1.0
     item.min_stock = parse_float(form.get("min_stock"))
+    item.par_level = parse_float(form.get("par_level"))
+    item.area = areas.normalize_area(form.get("area"), item.area or areas.KITCHEN)
     item.last_price = parse_float(form.get("last_price"), item.last_price or 0.0)
     sup = form.get("supplier_id")
     item.supplier_id = int(sup) if sup else None
@@ -323,6 +396,7 @@ def ingredient_detail(request: Request, item_id: int, db: Session = Depends(get_
         aliases=aliases,
         supplier_names=supplier_names,
         price_history=_price_history(db, item_id),
+        default_area=item.area,
         **_ingredient_form_ctx(db),
     )
 
@@ -494,9 +568,15 @@ def supplier_save(
 @app.get("/invoices", response_class=HTMLResponse)
 def invoice_list(request: Request, db: Session = Depends(get_session)):
     items = db.scalars(
-        select(Invoice).options(selectinload(Invoice.supplier), selectinload(Invoice.lines)).order_by(Invoice.created_at.desc())
+        select(Invoice)
+        .options(selectinload(Invoice.supplier), selectinload(Invoice.lines).selectinload(InvoiceLine.ingredient))
+        .order_by(Invoice.created_at.desc())
     ).all()
-    return render(request, "invoices.html", invoices=items)
+    area = current_area(request)
+    totals = {inv.id: invoice_service.area_totals(inv) for inv in items}
+    if area:  # chỉ hiện hoá đơn có hàng của khu đang xem (và bản nháp chưa gắn)
+        items = [inv for inv in items if area in totals[inv.id] or inv.status == "draft"]
+    return render(request, "invoices.html", invoices=items, area_totals=totals)
 
 
 @app.get("/invoices/scan", response_class=HTMLResponse)
@@ -555,7 +635,8 @@ def invoice_review(request: Request, invoice_id: int, db: Session = Depends(get_
     for i in ingredients:
         by_cat[i.category].append(i)
     ing_json = {
-        i.id: {"unit": i.unit, "pack_unit": i.pack_unit, "pack_size": i.pack_size, "last_price": i.last_price}
+        i.id: {"unit": i.unit, "pack_unit": i.pack_unit, "pack_size": i.pack_size, "last_price": i.last_price,
+               "area": i.area}
         for i in ingredients
     }
     return render(
@@ -565,6 +646,7 @@ def invoice_review(request: Request, invoice_id: int, db: Session = Depends(get_
         ingredients_by_cat=dict(by_cat),
         ing_json=ing_json,
         suppliers=db.scalars(select(Supplier).order_by(Supplier.name)).all(),
+        area_totals=invoice_service.area_totals(invoice),
     )
 
 
@@ -632,7 +714,9 @@ def _create_ingredient_from_line(db: Session, line: InvoiceLine) -> Ingredient:
         existing.active = 1
         return existing
     unit = matching.UNIT_ALIASES.get(matching.normalize(line.unit_raw), "") or "cái"
-    ing = Ingredient(name=name, category="Mới từ hoá đơn", unit=unit)
+    # Đoán khu: tên giống đồ uống hoặc VAT 19% -> quầy; còn lại -> bếp. Sửa được sau ở trang nguyên liệu.
+    area = areas.guess_area(name, "", line.vat_rate or None)
+    ing = Ingredient(name=name, category="Mới từ hoá đơn", unit=unit, area=area)
     db.add(ing)
     db.flush()
     line.pack_factor = 1.0
@@ -656,6 +740,10 @@ async def invoice_save(request: Request, invoice_id: int, db: Session = Depends(
             db.commit()
             flash(request, str(exc), "error")
             return redirect(f"/invoices/{invoice_id}")
+        split = invoice_service.area_totals(invoice)
+        parts = [f"{areas.AREAS[k]['label']}: {_money(split[k])}" for k in areas.AREA_KEYS if split.get(k)]
+        if len(parts) > 1:
+            notes.append("Chia theo khu – " + ", ".join(parts))
         after_stock_change(request, db)
         flash(request, " · ".join(notes))
         return redirect(f"/invoices/{invoice_id}")
@@ -685,9 +773,11 @@ def invoice_delete(request: Request, invoice_id: int, db: Session = Depends(get_
 
 @app.get("/recipes", response_class=HTMLResponse)
 def recipe_list(request: Request, db: Session = Depends(get_session)):
-    dishes = db.scalars(
-        select(Dish).options(selectinload(Dish.items).selectinload(RecipeItem.ingredient)).order_by(Dish.code, Dish.name)
-    ).all()
+    area = current_area(request)
+    query = select(Dish).options(selectinload(Dish.items).selectinload(RecipeItem.ingredient))
+    if area:
+        query = query.where(Dish.area == area)
+    dishes = db.scalars(query.order_by(Dish.area, Dish.code, Dish.name)).all()
     costs = {d.id: stock.dish_cost(d) for d in dishes}
     return render(request, "recipes.html", dishes=dishes, costs=costs)
 
@@ -697,12 +787,15 @@ def recipe_edit(request: Request, dish_id: str, db: Session = Depends(get_sessio
     dish = None if dish_id == "new" else db.get(Dish, int(dish_id))
     if dish_id != "new" and dish is None:
         raise HTTPException(404)
-    ingredients = db.scalars(select(Ingredient).where(Ingredient.active == 1).order_by(Ingredient.name)).all()
+    ingredients = db.scalars(
+        select(Ingredient).where(Ingredient.active == 1).order_by(Ingredient.area, Ingredient.name)
+    ).all()
     return render(
         request,
         "recipe_form.html",
         dish=dish,
         ingredients=ingredients,
+        default_area=dish.area if dish else (current_area(request) or areas.KITCHEN),
         ing_json={i.id: {"unit": i.unit, "price": i.last_price} for i in ingredients},
     )
 
@@ -732,6 +825,7 @@ async def recipe_save(request: Request, dish_id: str, db: Session = Depends(get_
     dish.name = name
     dish.code = form.get("code", "").strip()
     dish.price = parse_float(form.get("price"))
+    dish.area = areas.normalize_area(form.get("area"), dish.area or areas.KITCHEN)
     dish.items.clear()
     db.add(dish)
     db.flush()
@@ -751,13 +845,22 @@ async def recipe_save(request: Request, dish_id: str, db: Session = Depends(get_
 
 @app.get("/sales", response_class=HTMLResponse)
 def sales_page(request: Request, db: Session = Depends(get_session)):
-    dishes = db.scalars(select(Dish).options(selectinload(Dish.items)).order_by(Dish.code, Dish.name)).all()
-    recent = db.execute(
-        select(func.date(Sale.sold_at), func.sum(Sale.quantity), func.sum(Sale.revenue), func.sum(Sale.cost))
-        .group_by(func.date(Sale.sold_at))
-        .order_by(func.date(Sale.sold_at).desc())
-        .limit(14)
+    area = current_area(request)
+    query = select(Dish).options(selectinload(Dish.items))
+    if area:
+        query = query.where(Dish.area == area)
+    dishes = db.scalars(query.order_by(Dish.area, Dish.code, Dish.name)).all()
+    since = datetime.combine(date.today() - timedelta(days=13), datetime.min.time())
+    rows = db.execute(
+        select(func.date(Sale.sold_at), Dish.area, func.sum(Sale.quantity), func.sum(Sale.revenue), func.sum(Sale.cost))
+        .join(Dish, Dish.id == Sale.dish_id)
+        .where(Sale.sold_at >= since)
+        .group_by(func.date(Sale.sold_at), Dish.area)
     ).all()
+    days: dict[str, dict] = {}
+    for day, dish_area, qty, rev, cost in rows:
+        days.setdefault(str(day), {})[dish_area] = (int(qty or 0), float(rev or 0), float(cost or 0))
+    recent = sorted(days.items(), reverse=True)
     return render(request, "sales.html", dishes=dishes, recent=recent)
 
 
@@ -795,13 +898,14 @@ async def sales_record(request: Request, db: Session = Depends(get_session)):
 
 @app.get("/stocktake", response_class=HTMLResponse)
 def stocktake_page(request: Request, db: Session = Depends(get_session)):
-    ingredients = db.scalars(select(Ingredient).where(Ingredient.active == 1).order_by(Ingredient.category, Ingredient.name)).all()
-    groups: dict[str, list] = defaultdict(list)
-    for i in ingredients:
-        groups[i.category].append(i)
-    history = db.scalars(
-        select(Stocktake).options(selectinload(Stocktake.lines)).order_by(Stocktake.created_at.desc()).limit(10)
-    ).all()
+    area = current_area(request)
+    groups: dict[tuple[str, str], list] = defaultdict(list)
+    for i in sorted(stock.active_ingredients(db, area), key=lambda i: (i.area, i.category, i.name)):
+        groups[(i.area, i.category)].append(i)
+    history_query = select(Stocktake).options(selectinload(Stocktake.lines)).order_by(Stocktake.created_at.desc())
+    if area:
+        history_query = history_query.where(Stocktake.area.in_([area, ""]))
+    history = db.scalars(history_query.limit(10)).all()
     return render(request, "stocktake.html", groups=dict(groups), stocks=stock.stock_map(db), history=history)
 
 
@@ -815,7 +919,8 @@ async def stocktake_submit(request: Request, db: Session = Depends(get_session))
     if not counts:
         flash(request, "Chưa nhập số kiểm kê nào", "error")
         return redirect("/stocktake")
-    st = stock.apply_stocktake(db, counts, form.get("note", ""))
+    area = form.get("area", "")
+    st = stock.apply_stocktake(db, counts, form.get("note", ""), area if area in areas.AREAS else "")
     after_stock_change(request, db)
     flash(request, f"Đã lưu kiểm kê {len(counts)} nguyên liệu và điều chỉnh tồn kho.")
     return redirect(f"/stocktake/{st.id}")
@@ -826,12 +931,18 @@ def stocktake_report(request: Request, st_id: int, db: Session = Depends(get_ses
     st = db.get(Stocktake, st_id)
     if not st:
         raise HTTPException(404)
-    lines = sorted(st.lines, key=lambda line: line.variance_value)
+    lines = sorted(st.lines, key=lambda line: (line.ingredient.area, line.variance_value))
+    by_area: dict[str, dict] = {}
+    for line in lines:
+        bucket = by_area.setdefault(line.ingredient.area, {"loss": 0.0, "gain": 0.0, "count": 0})
+        bucket["count"] += 1
+        bucket["loss" if line.variance_value < 0 else "gain"] += line.variance_value
     return render(
         request,
         "stocktake_report.html",
         st=st,
         lines=lines,
+        by_area=by_area,
         loss=sum(line.variance_value for line in lines if line.variance_value < 0),
         gain=sum(line.variance_value for line in lines if line.variance_value > 0),
     )
@@ -842,29 +953,44 @@ def stocktake_report(request: Request, st_id: int, db: Session = Depends(get_ses
 
 @app.get("/reports", response_class=HTMLResponse)
 def reports(request: Request, days: int = 30, ingredient_id: int | None = None, db: Session = Depends(get_session)):
+    area = current_area(request)
     days = max(1, min(days, 365))
     since = datetime.now() - timedelta(days=days)
-    sales = db.execute(
-        select(Dish.name, func.sum(Sale.quantity), func.sum(Sale.revenue), func.sum(Sale.cost))
+    sales_query = (
+        select(Dish.name, Dish.area, func.sum(Sale.quantity), func.sum(Sale.revenue), func.sum(Sale.cost))
         .join(Dish, Dish.id == Sale.dish_id)
         .where(Sale.sold_at >= since)
-        .group_by(Dish.name)
+        .group_by(Dish.name, Dish.area)
         .order_by(func.sum(Sale.revenue).desc())
-    ).all()
-    revenue = sum(r[2] or 0 for r in sales)
-    cogs = sum(r[3] or 0 for r in sales)
-    purchases = db.scalar(
-        select(func.coalesce(func.sum(Batch.quantity_initial * Batch.unit_cost), 0)).where(
-            Batch.source == "purchase", Batch.received_at >= since
-        )
     )
-    losses = db.execute(
-        select(Ingredient.name, Movement.kind, func.sum(-Movement.quantity), func.sum(-Movement.quantity * Movement.unit_cost), Ingredient.unit)
+    if area:
+        sales_query = sales_query.where(Dish.area == area)
+    sales = db.execute(sales_query).all()
+    sales_split = _sales_by_area(db, since)
+    purchases_split = _purchases_by_area(db, since)
+    losses_split = _losses_by_area(db, since)
+    keys = [area] if area else list(areas.AREA_KEYS)
+    split = [
+        {
+            "key": key,
+            "revenue": sales_split.get(key, (0.0, 0.0))[0],
+            "cost": sales_split.get(key, (0.0, 0.0))[1],
+            "purchases": purchases_split.get(key, 0.0),
+            "losses": losses_split.get(key, 0.0),
+            "stock": stock.stock_value(db, key),
+        }
+        for key in areas.AREA_KEYS
+    ]
+    losses_query = (
+        select(Ingredient.name, Movement.kind, func.sum(-Movement.quantity), func.sum(-Movement.quantity * Movement.unit_cost), Ingredient.unit, Ingredient.area)
         .join(Ingredient, Ingredient.id == Movement.ingredient_id)
         .where(Movement.kind.in_(["WASTE", "ADJUST"]), Movement.quantity < 0, Movement.created_at >= since)
-        .group_by(Ingredient.name, Movement.kind, Ingredient.unit)
+        .group_by(Ingredient.name, Movement.kind, Ingredient.unit, Ingredient.area)
         .order_by(func.sum(-Movement.quantity * Movement.unit_cost).desc())
-    ).all()
+    )
+    if area:
+        losses_query = losses_query.where(Ingredient.area == area)
+    losses = db.execute(losses_query).all()
     # Biến động giá: so sánh giá nhập đầu và cuối kỳ của từng nguyên liệu.
     rows = db.execute(
         select(Batch.ingredient_id, Batch.received_at, Batch.unit_cost)
@@ -881,32 +1007,45 @@ def reports(request: Request, days: int = 30, ingredient_id: int | None = None, 
         (
             (ingredients[i], first[i], last[i], (last[i] - first[i]) / first[i] * 100)
             for i in first
-            if first[i] and i in ingredients
+            if first[i] and i in ingredients and (not area or ingredients[i].area == area)
         ),
         key=lambda r: -abs(r[3]),
     )
-    active_ings = sorted((i for i in ingredients.values() if i.active), key=lambda i: i.name)
+    active_ings = sorted((i for i in ingredients.values() if i.active and (not area or i.area == area)), key=lambda i: i.name)
     selected = ingredient_id or (price_changes[0][0].id if price_changes else None)
-    daily = db.execute(
-        select(func.date(Sale.sold_at), func.sum(Sale.revenue), func.sum(Sale.cost))
+    daily_query = (
+        select(func.date(Sale.sold_at), Dish.area, func.sum(Sale.revenue), func.sum(Sale.cost))
+        .join(Dish, Dish.id == Sale.dish_id)
         .where(Sale.sold_at >= since)
-        .group_by(func.date(Sale.sold_at))
+        .group_by(func.date(Sale.sold_at), Dish.area)
         .order_by(func.date(Sale.sold_at))
-    ).all()
+    )
+    daily_map: dict[str, dict] = {}
+    for day, dish_area, rev, cost in db.execute(daily_query).all():
+        if area and dish_area != area:
+            continue
+        entry = daily_map.setdefault(str(day), {"d": str(day), "rev": 0.0, "cost": 0.0, "kitchen": 0.0, "bar": 0.0})
+        entry["rev"] = round(entry["rev"] + float(rev or 0), 2)
+        entry["cost"] = round(entry["cost"] + float(cost or 0), 2)
+        entry[dish_area] = round(entry.get(dish_area, 0.0) + float(rev or 0), 2)
+    revenue = sum(sales_split.get(k, (0.0, 0.0))[0] for k in keys)
+    cogs = sum(sales_split.get(k, (0.0, 0.0))[1] for k in keys)
     return render(
         request,
         "reports.html",
         days=days,
         sales=sales,
+        split=split,
         revenue=revenue,
         cogs=cogs,
-        purchases=float(purchases or 0),
+        purchases=sum(purchases_split.get(k, 0.0) for k in keys),
         losses=losses,
+        stock_by_category=stock.stock_value_by_category(db, area),
         price_changes=price_changes,
         ingredients=active_ings,
         selected=selected,
         price_history=_price_history(db, selected) if selected else {},
-        daily=[{"d": str(d), "rev": round(r or 0, 2), "cost": round(c or 0, 2)} for d, r, c in daily],
+        daily=list(daily_map.values()),
     )
 
 
@@ -915,17 +1054,16 @@ def reports(request: Request, days: int = 30, ingredient_id: int | None = None, 
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, db: Session = Depends(get_session)):
-    ingredients = db.scalars(
-        select(Ingredient).where(Ingredient.active == 1).order_by(Ingredient.category, Ingredient.name)
-    ).all()
-    groups: dict[str, list] = defaultdict(list)
-    for i in ingredients:
-        groups[i.category].append(i)
+    area = current_area(request)
+    groups: dict[tuple[str, str], list] = defaultdict(list)
+    for i in sorted(stock.active_ingredients(db, area), key=lambda i: (i.area, i.category, i.name)):
+        groups[(i.area, i.category)].append(i)
     logs = db.scalars(select(AlertLog).order_by(AlertLog.created_at.desc()).limit(15)).all()
     return render(
         request,
         "settings.html",
         alert_email=", ".join(alerts.alert_recipients(db)),
+        area_emails={key: alerts.get_setting(db, f"alert_email_{key}", "") for key in areas.AREA_KEYS},
         alerts_enabled=alerts.alerts_enabled(db),
         smtp_configured=alerts.smtp_configured(),
         smtp_host=config.SMTP_HOST,
@@ -933,7 +1071,7 @@ def settings_page(request: Request, db: Session = Depends(get_session)):
         groups=dict(groups),
         stocks=stock.stock_map(db),
         logs=logs,
-        low_count=len(stock.low_stock(db)),
+        low_count=len(stock.low_stock(db, area)),
         ocr_settings=ocr.get_settings(db),
     )
 
@@ -1029,10 +1167,14 @@ def _sqlite_path() -> Path | None:
 def settings_alerts(
     request: Request,
     alert_email: str = Form(""),
+    alert_email_kitchen: str = Form(""),
+    alert_email_bar: str = Form(""),
     alerts_enabled: str = Form(""),
     db: Session = Depends(get_session),
 ):
     alerts.set_setting(db, "alert_email", alert_email.strip())
+    alerts.set_setting(db, "alert_email_kitchen", alert_email_kitchen.strip())
+    alerts.set_setting(db, "alert_email_bar", alert_email_bar.strip())
     alerts.set_setting(db, "alerts_enabled", "1" if alerts_enabled else "0")
     db.commit()
     flash(request, "Đã lưu cài đặt cảnh báo")
@@ -1044,29 +1186,57 @@ async def settings_thresholds(request: Request, db: Session = Depends(get_sessio
     form = await request.form()
     changed = 0
     for key, value in form.items():
-        if not key.startswith("min_"):
+        field = "min_stock" if key.startswith("min_") else "par_level" if key.startswith("par_") else None
+        if field is None:
             continue
         ing = db.get(Ingredient, int(key[4:]))
         new = parse_float(value)
-        if ing and abs(ing.min_stock - new) > 1e-9:
-            ing.min_stock = new
+        if ing and abs(getattr(ing, field) - new) > 1e-9:
+            setattr(ing, field, new)
             changed += 1
     after_stock_change(request, db)
-    flash(request, f"Đã cập nhật ngưỡng tồn cho {changed} nguyên liệu")
+    flash(request, f"Đã cập nhật {changed} giá trị ngưỡng / mức tồn chuẩn")
     return redirect("/settings")
 
 
 @app.post("/settings/send-report")
 def settings_send_report(request: Request, db: Session = Depends(get_session)):
-    low = stock.low_stock(db)
+    low = stock.low_stock(db, current_area(request))
     if not low:
         flash(request, "Không có nguyên liệu nào dưới ngưỡng — không cần gửi báo cáo.")
         return redirect("/settings")
-    entry = alerts.notify(db, low)
-    if entry.status == "sent":
-        flash(request, f"Đã gửi báo cáo {len(low)} nguyên liệu tới {entry.recipient}")
-    elif entry.status == "pending":
-        flash(request, f"Đang gửi báo cáo {len(low)} nguyên liệu tới {entry.recipient} — xem trạng thái ở Lịch sử email.")
+    entries = alerts.notify(db, low)
+    failed = [e for e in entries if e.status not in ("sent", "pending")]
+    recipients = ", ".join(e.recipient for e in entries)
+    if failed:
+        flash(request, f"Chưa gửi được email: {failed[0].detail}", "error")
+    elif all(e.status == "sent" for e in entries):
+        flash(request, f"Đã gửi báo cáo {len(low)} nguyên liệu tới {recipients}")
     else:
-        flash(request, f"Chưa gửi được email: {entry.detail}", "error")
+        flash(request, f"Đang gửi báo cáo {len(low)} nguyên liệu tới {recipients} — xem trạng thái ở Lịch sử email.")
     return redirect("/settings")
+
+
+# ---------------------------------------------------------------- đặt hàng
+
+
+@app.get("/orders", response_class=HTMLResponse)
+def orders_page(request: Request, db: Session = Depends(get_session)):
+    """Danh sách cần đặt hàng theo khu, gom theo nhà cung cấp, kèm tin nhắn đặt hàng để copy."""
+    area = current_area(request)
+    groups = stock.order_suggestions(db, area)
+    messages = {supplier: _order_message(lines) for supplier, lines in groups}
+    return render(request, "orders.html", groups=groups, messages=messages)
+
+
+def _order_message(lines) -> str:
+    """Tin nhắn đặt hàng bằng tiếng Đức (gửi NCC qua email/WhatsApp)."""
+    rows = []
+    for line in lines:
+        ing = line.ingredient
+        name = ing.name.split(" / ")[-1]  # phần tên tiếng Đức nếu có "Việt / Đức"
+        if line.packs:
+            rows.append(f"- {line.packs} × {ing.pack_unit} {name} ({stock.fmt_qty(ing.pack_size)} {ing.unit})")
+        else:
+            rows.append(f"- {stock.fmt_qty(line.quantity)} {ing.unit} {name}")
+    return "Guten Tag,\nwir möchten bestellen:\n" + "\n".join(rows) + "\n\nVielen Dank!\nMai Wok"

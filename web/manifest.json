@@ -1,7 +1,8 @@
 {
-  "version": "3c6b7047770a",
+  "version": "684e12705109",
   "files": [
     "app/__init__.py",
+    "app/areas.py",
     "app/browser.py",
     "app/config.py",
     "app/db.py",
@@ -23,6 +24,7 @@
     "app/templates/invoice_review.html",
     "app/templates/invoices.html",
     "app/templates/login.html",
+    "app/templates/orders.html",
     "app/templates/recipe_form.html",
     "app/templates/recipes.html",
     "app/templates/reports.html",
