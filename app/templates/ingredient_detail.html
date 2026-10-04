@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block heading %}{{ item.name }}{% endblock %}
+{% block actions %}<a class="btn" href="/ingredients">← Danh sách</a>{% endblock %}
+{% block content %}
+{% set is_low = item.min_stock > 0 and current < item.min_stock %}
+<div class="kpis">
+  <div class="kpi {{ 'alert' if is_low }}"><div class="label">Tồn kho hiện tại</div><div class="value">{{ current|qty }} {{ item.unit }}</div>
+    {% if is_low %}<span class="pill pill-warn">Dưới ngưỡng</span>{% endif %}</div>
+  <div class="kpi"><div class="label">Ngưỡng tối thiểu</div><div class="value">{{ item.min_stock|qty }} {{ item.unit }}</div></div>
+  <div class="kpi"><div class="label">Giá nhập gần nhất</div><div class="value">{{ item.last_price|money }}</div><div class="small muted">/ {{ item.unit }}</div></div>
+  <div class="kpi"><div class="label">Quy đổi</div><div class="value" style="font-size:1.1rem">{% if item.pack_unit %}1 {{ item.pack_unit }} = {{ item.pack_size|qty }} {{ item.unit }}{% else %}–{% endif %}</div></div>
+</div>
+
+<div class="grid grid-2">
+  <form class="card" method="post" action="/ingredients/{{ item.id }}/receive">
+    <div class="card-head"><h2>Nhập kho thủ công</h2></div>
+    <div class="form-row">
+      <div><label>Số lượng</label><input name="quantity" inputmode="decimal" required placeholder="0"></div>
+      <div><label>Đơn giá</label><input name="unit_cost" inputmode="decimal" placeholder="{{ '%.2f'|format(item.last_price) }}"></div>
+      <div><label>Hạn sử dụng</label><input type="date" name="expiry_date"></div>
+    </div>
+    <div class="form-row" style="margin-top:10px">
+      <div><label>Nhà cung cấp</label><select name="supplier_id"><option value="">—</option>
+        {% for s in suppliers %}<option value="{{ s.id }}" {{ 'selected' if item.supplier_id == s.id }}>{{ s.name }}</option>{% endfor %}</select></div>
+      {% if item.pack_unit %}<div><label class="check"><input type="checkbox" name="in_packs" value="1"> Tính theo {{ item.pack_unit }} ({{ item.pack_size|qty }} {{ item.unit }})</label></div>{% endif %}
+    </div>
+    <div class="form-actions"><button class="btn btn-primary">+ Nhập kho</button></div>
+  </form>
+  <form class="card" method="post" action="/ingredients/{{ item.id }}/consume">
+    <div class="card-head"><h2>Xuất kho / Hao hụt</h2></div>
+    <div class="form-row">
+      <div><label>Số lượng ({{ item.unit }})</label><input name="quantity" inputmode="decimal" required placeholder="0"></div>
+      <div><label>Loại</label><select name="kind"><option value="USE">Xuất dùng (bếp)</option><option value="WASTE">Hỏng / hao hụt</option></select></div>
+    </div>
+    <div style="margin-top:10px"><label>Ghi chú</label><input name="note" placeholder="vd. Rau héo, rơi vỡ…"></div>
+    <div class="form-actions"><button class="btn">− Xuất kho</button></div>
+    <p class="hint">Xuất theo nguyên tắc lô hết hạn trước xuất trước (FEFO/FIFO).</p>
+  </form>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Lô hàng còn trong kho</h2></div>
+    {% if batches %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Ngày nhập</th><th>NCC</th><th class="num">Còn</th><th class="num">Giá</th><th>HSD</th></tr></thead>
+      <tbody>{% for b in batches %}
+      {% set days = (b.expiry_date - today()).days if b.expiry_date else None %}
+      <tr><td class="small">{{ b.received_at|vdate }}</td><td class="small">{{ b.supplier.name if b.supplier else (b.note or '—') }}</td>
+        <td class="num">{{ b.quantity_remaining|qty }} / {{ b.quantity_initial|qty }}</td><td class="num">{{ b.unit_cost|money }}</td>
+        <td>{% if b.expiry_date %}<span class="pill {{ 'pill-danger' if days <= 0 else ('pill-warn' if days <= 3 else 'pill-muted') }}">{{ b.expiry_date|vdate }}</span>{% else %}–{% endif %}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="empty">Không còn hàng trong kho.</p>{% endif %}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Biến động giá nhập</h2></div>
+    {% if price_history %}<div class="chart-box"><canvas id="priceChart"></canvas></div>
+    {% else %}<p class="empty">Chưa có lịch sử giá.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Lịch sử xuất nhập</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Thời gian</th><th>Loại</th><th class="num">Số lượng</th><th class="num">Đơn giá</th><th>Ghi chú</th></tr></thead>
+    <tbody>{% for m in movements %}
+    <tr><td class="small nowrap">{{ m.created_at|vdate }}</td>
+      <td><span class="pill {{ 'pill-ok' if m.quantity > 0 else ('pill-danger' if m.kind == 'WASTE' else 'pill-muted') }}">{{ movement_labels.get(m.kind, m.kind) }}</span></td>
+      <td class="num">{{ '+' if m.quantity > 0 }}{{ m.quantity|qty }} {{ item.unit }}</td><td class="num">{{ m.unit_cost|money }}</td><td class="small muted">{{ m.reference }}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty">Chưa có giao dịch.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Tên trên hoá đơn đã ghi nhớ</h2></div>
+    <p class="hint" style="margin-top:-6px">Lần quét sau, các tên này sẽ tự động khớp với nguyên liệu này.</p>
+    {% if aliases %}<ul class="list">{% for a in aliases %}
+      <li><span><code>{{ a.alias }}</code> <span class="muted small">· {{ supplier_names.get(a.supplier_id, 'mọi NCC') }} · ×{{ a.pack_factor|qty }} {{ item.unit }}</span></span>
+        <form method="post" action="/aliases/{{ a.id }}/delete"><button class="link-btn small">Xoá</button></form></li>
+    {% endfor %}</ul>{% else %}<p class="empty">Chưa có.</p>{% endif %}
+  </div>
+  <div class="card">
+    <details>
+      <summary>Sửa thông tin nguyên liệu</summary>
+      <form method="post" action="/ingredients/{{ item.id }}/edit" style="margin-top:14px">
+        {% include "_ingredient_fields.html" %}
+        <div class="form-actions"><button class="btn btn-primary">Lưu</button></div>
+      </form>
+      <form method="post" action="/ingredients/{{ item.id }}/archive" onsubmit="return confirm('Ẩn nguyên liệu này khỏi danh sách?')">
+        <button class="btn btn-danger btn-sm" style="margin-top:10px">Ẩn nguyên liệu</button>
+      </form>
+    </details>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if price_history %}
+<script src="/static/chart.umd.min.js"></script>
+<script>priceChart(document.getElementById('priceChart'), {{ price_history|tojson }}, '{{ item.unit }}');</script>
+{% endif %}
+{% endblock %}

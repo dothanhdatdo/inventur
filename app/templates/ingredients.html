@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Nguyên liệu{% endblock %}
+{% block heading %}Nguyên liệu & tồn kho{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/ingredients/new">+ Thêm nguyên liệu</a>{% endblock %}
+{% block content %}
+<form class="filters" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Tìm nguyên liệu…" aria-label="Tìm">
+  <select name="category" aria-label="Nhóm" onchange="this.form.submit()">
+    <option value="">Tất cả nhóm</option>
+    {% for c in categories %}<option {{ 'selected' if c == category }}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="status" aria-label="Trạng thái" onchange="this.form.submit()">
+    <option value="">Mọi trạng thái</option>
+    <option value="low" {{ 'selected' if status == 'low' }}>Dưới ngưỡng tồn</option>
+  </select>
+  <button class="btn" type="submit">Lọc</button>
+</form>
+<div class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Nguyên liệu</th><th class="num">Tồn kho</th><th class="num">Ngưỡng tối thiểu</th><th class="num">Giá nhập gần nhất</th><th class="num">Giá trị</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+    {% for cat, items in groups.items() %}
+      <tr class="group-row"><td colspan="6">{{ cat }}</td></tr>
+      {% for i in items %}
+      {% set s = stocks.get(i.id, 0) %}
+      {% set is_low = i.min_stock > 0 and s < i.min_stock %}
+      <tr class="{{ 'is-low' if is_low }}">
+        <td><a href="/ingredients/{{ i.id }}"><strong>{{ i.name }}</strong></a>
+          {% if i.pack_unit %}<div class="small muted">1 {{ i.pack_unit }} = {{ i.pack_size|qty }} {{ i.unit }}</div>{% endif %}</td>
+        <td class="num"><strong>{{ s|qty }}</strong> {{ i.unit }}{% if i.pack_unit and i.pack_size > 1 %}<div class="small muted">≈ {{ (s / i.pack_size)|round(1)|qty }} {{ i.pack_unit }}</div>{% endif %}</td>
+        <td class="num">{{ i.min_stock|qty }} {{ i.unit }}</td>
+        <td class="num">{{ i.last_price|money }}/{{ i.unit }}</td>
+        <td class="num">{{ (s * i.last_price)|money }}</td>
+        <td>{% if s <= 0 %}<span class="pill pill-danger">Hết hàng</span>{% elif is_low %}<span class="pill pill-warn">Sắp hết</span>{% else %}<span class="pill pill-ok">Đủ</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" class="empty">Không tìm thấy nguyên liệu.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

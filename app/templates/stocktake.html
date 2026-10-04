@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Kiểm kê{% endblock %}
+{% block heading %}Kiểm kê kho (Inventur){% endblock %}
+{% block content %}
+<form class="card" method="post" action="/stocktake">
+  <p class="hint" style="margin-top:0">Đếm thực tế và nhập số lượng. Ô bỏ trống sẽ không kiểm kê. Hệ thống so sánh với tồn lý thuyết, điều chỉnh kho và báo cáo hao hụt.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Nguyên liệu</th><th class="num">Tồn hệ thống</th><th class="num">Thực tế</th><th class="num">Chênh lệch</th></tr></thead>
+    <tbody>{% for cat, items in groups.items() %}
+      <tr class="group-row"><td colspan="4">{{ cat }}</td></tr>
+      {% for i in items %}
+      <tr><td>{{ i.name }}</td><td class="num" data-expected="{{ stocks.get(i.id, 0) }}">{{ stocks.get(i.id, 0)|qty }} {{ i.unit }}</td>
+        <td class="num"><input class="qty-input count-input" name="count_{{ i.id }}" inputmode="decimal" aria-label="Thực tế {{ i.name }}"></td>
+        <td class="num diff small"></td></tr>
+      {% endfor %}
+    {% endfor %}</tbody>
+  </table></div>
+  <div class="form-row" style="margin-top:14px"><div><label for="st-note">Ghi chú</label><input id="st-note" name="note" placeholder="vd. Kiểm kê cuối tháng"></div></div>
+  <div class="form-actions"><button class="btn btn-primary" onclick="return confirm('Lưu kiểm kê và điều chỉnh tồn kho?')">Lưu kiểm kê</button></div>
+</form>
+{% if history %}
+<div class="card"><div class="card-head"><h2>Lịch sử kiểm kê</h2></div>
+  <ul class="list">{% for st in history %}
+    {% set loss = st.lines|selectattr('variance_value', 'lt', 0)|map(attribute='variance_value')|sum %}
+    <li><a href="/stocktake/{{ st.id }}">#{{ st.id }} · {{ st.created_at|vdate }} {{ '· ' ~ st.note if st.note }}</a><span>{{ st.lines|length }} mục · hao hụt <strong>{{ loss|money }}</strong></span></li>
+  {% endfor %}</ul></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>initStocktake();</script>{% endblock %}

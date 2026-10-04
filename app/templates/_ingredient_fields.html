@@ -1,0 +1,24 @@
+<div class="form-grid">
+  <div style="grid-column: span 2"><label for="f-name">Tên nguyên liệu *</label>
+    <input id="f-name" name="name" required value="{{ item.name if item else prefill_name }}" placeholder="vd. Thịt bò / Rinderhüfte">
+    <div class="hint">Mẹo: ghi cả tên tiếng Việt và tên trên hoá đơn (Đức) để AI khớp tốt hơn.</div></div>
+  <div><label for="f-cat">Nhóm</label>
+    <input id="f-cat" name="category" list="cats" value="{{ item.category if item else '' }}" placeholder="vd. Thịt & hải sản">
+    <datalist id="cats">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist></div>
+  <div><label for="f-unit">Đơn vị tồn kho *</label>
+    <input id="f-unit" name="unit" list="units" required value="{{ item.unit if item else 'kg' }}">
+    <datalist id="units">{% for u in units %}<option value="{{ u }}">{% endfor %}</datalist></div>
+  <div><label for="f-min">Ngưỡng tồn tối thiểu</label>
+    <input id="f-min" name="min_stock" inputmode="decimal" value="{{ item.min_stock|qty if item else '' }}" placeholder="0">
+    <div class="hint">Dưới mức này sẽ cảnh báo & gửi email.</div></div>
+  <div><label for="f-pu">Đơn vị mua (quy đổi)</label>
+    <input id="f-pu" name="pack_unit" value="{{ item.pack_unit if item else '' }}" placeholder="vd. thùng, bao"></div>
+  <div><label for="f-ps">1 đơn vị mua = ? đơn vị kho</label>
+    <input id="f-ps" name="pack_size" inputmode="decimal" value="{{ item.pack_size|qty if item else '1' }}"></div>
+  <div><label for="f-price">Giá / đơn vị kho ({{ '€' }})</label>
+    <input id="f-price" name="last_price" inputmode="decimal" value="{{ '%.2f'|format(item.last_price) if item else '' }}"></div>
+  <div><label for="f-sup">Nhà cung cấp chính</label>
+    <select id="f-sup" name="supplier_id"><option value="">—</option>
+      {% for s in suppliers %}<option value="{{ s.id }}" {{ 'selected' if item and item.supplier_id == s.id }}>{{ s.name }}</option>{% endfor %}
+    </select></div>
+</div>

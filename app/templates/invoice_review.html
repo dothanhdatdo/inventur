@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Hoá đơn #{{ invoice.id }}{% endblock %}
+{% block heading %}{% if invoice.status == 'confirmed' %}Hoá đơn #{{ invoice.id }}{% elif invoice.file_path %}Đối soát hoá đơn #{{ invoice.id }}{% else %}Phiếu nhập thủ công #{{ invoice.id }}{% endif %}{% endblock %}
+{% block actions %}
+{% if invoice.status == 'confirmed' %}<span class="pill pill-ok">Đã nhập kho {{ invoice.confirmed_at|vdate }}</span>{% else %}<span class="pill pill-warn">Chờ duyệt</span>{% endif %}
+<a class="btn" href="/invoices">← Hoá đơn</a>
+{% endblock %}
+{% block content %}
+{% set locked = invoice.status == 'confirmed' %}
+<div class="review {{ 'no-file' if not invoice.file_path }}">
+  {% if invoice.file_path %}
+  <div class="card doc-view">
+    <div class="doc-scroll">
+    {% if invoice.file_type == 'application/pdf' %}
+      <iframe src="/invoices/{{ invoice.id }}/file" title="Hoá đơn PDF"></iframe>
+    {% else %}
+      <img src="/invoices/{{ invoice.id }}/file" alt="Ảnh hoá đơn" onclick="this.classList.toggle('zoomed')">
+    {% endif %}
+    </div>
+    <div class="small muted" style="margin-top:6px">Bấm vào ảnh để phóng to · <a href="/invoices/{{ invoice.id }}/file" target="_blank">Mở file gốc</a></div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/invoices/{{ invoice.id }}" id="invoiceForm">
+    <fieldset {{ 'disabled' if locked }} style="border:0;padding:0;margin:0;min-width:0">
+    <div class="card">
+      <div class="card-head"><h2>Thông tin hoá đơn</h2>
+        <span class="pill pill-muted">{{ {'anthropic': 'Đọc bởi Claude', 'openai': 'Đọc bởi GPT-4o', 'demo': 'Dữ liệu demo', 'manual': 'Nhập thủ công'}.get(invoice.source, invoice.source) }}</span></div>
+      <div class="form-grid">
+        <div><label for="i-sup">Nhà cung cấp</label>
+          <select id="i-sup" name="supplier_id" onchange="document.getElementById('newSup').style.display = this.value ? 'none' : ''">
+            <option value="">— NCC mới / chưa có —</option>
+            {% for s in suppliers %}<option value="{{ s.id }}" {{ 'selected' if invoice.supplier_id == s.id }}>{{ s.name }}</option>{% endfor %}
+          </select></div>
+        <div id="newSup" style="{{ 'display:none' if invoice.supplier_id }}"><label for="i-supraw">Tên NCC trên hoá đơn</label>
+          <input id="i-supraw" name="supplier_name_raw" value="{{ invoice.supplier_name_raw }}" placeholder="Sẽ tạo NCC mới khi nhập kho"></div>
+        <div><label for="i-no">Số hoá đơn</label><input id="i-no" name="invoice_number" value="{{ invoice.invoice_number }}"></div>
+        <div><label for="i-date">Ngày hoá đơn</label><input id="i-date" type="date" name="invoice_date" value="{{ invoice.invoice_date.isoformat() if invoice.invoice_date else '' }}"></div>
+        <div><label for="i-vat">Tiền VAT</label><input id="i-vat" name="vat" inputmode="decimal" value="{{ '%.2f'|format(invoice.vat) }}"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Mặt hàng</h2>
+        <span class="small muted"><span class="pill pill-ok">Đã nhớ</span> khớp theo lần trước · <span class="pill pill-warn">?</span> cần kiểm tra</span></div>
+      <div class="lines" id="lines">
+        {% for line in invoice.lines %}{% set row = loop.index0 %}{% include "_invoice_line.html" %}{% endfor %}
+      </div>
+      {% if not locked %}<button type="button" class="btn" style="margin-top:12px" onclick="addLine()">+ Thêm dòng</button>{% endif %}
+      <template id="lineTemplate">{% set line = None %}{% set row = '__ROW__' %}{% include "_invoice_line.html" %}</template>
+    </div>
+    </fieldset>
+
+    <div class="sticky-actions">
+      <div class="totals"><span>Tiền hàng: <strong id="sumSubtotal">{{ invoice.subtotal|money }}</strong></span>
+        <span>Tổng: <strong id="sumTotal">{{ invoice.total|money }}</strong></span>
+        <span class="muted" id="sumMatched"></span></div>
+      {% if not locked %}
+      <div class="form-actions" style="margin:0">
+        <button class="btn" name="action" value="save">Lưu nháp</button>
+        <button class="btn btn-primary" name="action" value="confirm" onclick="return confirmImport()">✓ Nhập kho</button>
+      </div>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% if not locked %}
+<form method="post" action="/invoices/{{ invoice.id }}/delete" onsubmit="return confirm('Xoá bản nháp này?')" style="margin-top:12px">
+  <button class="btn btn-danger btn-sm">Xoá bản nháp</button>
+</form>
+{% endif %}
+{% if invoice.raw_json and invoice.raw_json != '{}' %}
+<details class="card" style="margin-top:16px"><summary>Dữ liệu gốc AI trả về (JSON)</summary><pre>{{ invoice.raw_json }}</pre></details>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+window.INGREDIENTS = {{ ing_json|tojson }};
+window.CURRENCY = '€';
+initInvoiceReview({{ invoice.lines|length }});
+</script>
+{% endblock %}

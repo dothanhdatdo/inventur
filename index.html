@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mai Wok Kho · Quản lý kho nhà hàng</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="Quản lý kho nhà hàng: quét hoá đơn bằng AI, nhập hàng, cảnh báo sắp hết, kiểm kê. Chạy bằng Python ngay trong trình duyệt.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./app/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f766e'/><path d='M8 13h16v11H8zM6 9h20v4H6z' fill='white'/></svg>">
+  <style>
+    .boot { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+    .boot-card { max-width: 440px; width: 100%; text-align: center; }
+    .boot-bar { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 18px 0 10px; }
+    .boot-bar span { display: block; height: 100%; width: 5%; background: var(--primary); transition: width .4s; }
+    .boot-error { color: var(--danger); text-align: left; white-space: pre-wrap; font-size: .85rem; }
+    .boot .brand { justify-content: center; }
+    #app-loading { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 50; background: var(--primary); transform-origin: left; animation: load 1s ease-in-out infinite; display: none; }
+    body.busy #app-loading { display: block; }
+    @keyframes load { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); opacity: .2; } }
+  </style>
+</head>
+<body>
+  <div class="boot" id="boot">
+    <div class="card boot-card">
+      <div class="brand"><span class="brand-mark">MW</span><span><strong>Mai Wok</strong><small>Quản lý kho</small></span></div>
+      <div class="boot-bar"><span id="boot-progress"></span></div>
+      <p id="boot-status">Đang khởi động…</p>
+      <p class="hint">Ứng dụng viết bằng Python, chạy ngay trong trình duyệt (Pyodide). Lần đầu mở cần tải ~20 MB, những lần sau nhanh hơn. Dữ liệu được lưu trên thiết bị này.</p>
+      <pre class="boot-error" id="boot-error" hidden></pre>
+    </div>
+  </div>
+  <div id="app-loading"></div>
+  <script src="./app/static/chart.umd.min.js"></script>
+  <script src="./app/static/app.js"></script>
+  <script type="module" src="./web/runtime.js"></script>
+</body>
+</html>

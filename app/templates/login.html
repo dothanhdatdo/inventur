@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập · Mai Wok Kho</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><div class="login-wrap"><form class="card login-card" method="post" action="/login">
+  <div class="brand"><span class="brand-mark">MW</span><span><strong>Mai Wok</strong><small>Quản lý kho</small></span></div>
+  {% if flash %}<p class="pill pill-danger">{{ flash.message }}</p>{% endif %}
+  <label for="pw">Mật khẩu</label>
+  <input id="pw" type="password" name="password" autofocus required>
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Đăng nhập</button></div>
+</form></div></body></html>

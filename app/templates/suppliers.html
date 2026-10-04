@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Nhà cung cấp{% endblock %}
+{% block heading %}Nhà cung cấp{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <div class="card">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Tên</th><th>Liên hệ</th><th class="num">Hoá đơn</th><th class="num">Đã nhập</th><th></th></tr></thead>
+      <tbody>{% for s in suppliers %}
+      <tr><td><strong>{{ s.name }}</strong><div class="small muted">{{ s.note }}</div></td>
+        <td class="small">{{ s.phone }}<br>{{ s.email }}</td>
+        <td class="num">{{ counts.get(s.id, 0) }}</td><td class="num">{{ totals.get(s.id, 0)|money }}</td>
+        <td><button class="link-btn small" type="button" onclick='editSupplier({{ {"id": s.id, "name": s.name, "phone": s.phone, "email": s.email, "note": s.note}|tojson }})'>Sửa</button></td></tr>
+      {% else %}<tr><td colspan="5" class="empty">Chưa có nhà cung cấp.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+  <form class="card" method="post" action="/suppliers" id="supplierForm">
+    <div class="card-head"><h2 id="supplierTitle">Thêm nhà cung cấp</h2></div>
+    <input type="hidden" name="supplier_id" id="s-id">
+    <div class="form-grid">
+      <div style="grid-column: 1 / -1"><label for="s-name">Tên *</label><input id="s-name" name="name" required></div>
+      <div><label for="s-phone">Điện thoại</label><input id="s-phone" name="phone"></div>
+      <div><label for="s-email">Email</label><input id="s-email" name="email" type="email"></div>
+      <div style="grid-column: 1 / -1"><label for="s-note">Ghi chú</label><input id="s-note" name="note"></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-primary">Lưu</button><button class="btn" type="reset" onclick="editSupplier(null)">Mới</button></div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+function editSupplier(s) {
+  document.getElementById('supplierTitle').textContent = s ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp';
+  for (const k of ['id', 'name', 'phone', 'email', 'note']) document.getElementById('s-' + k).value = s ? (s[k] || '') : '';
+  if (s) document.getElementById('s-name').focus();
+}
+</script>{% endblock %}

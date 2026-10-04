@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Kho Nhà Hàng{% endblock %} · Mai Wok Kho</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f766e'/><path d='M8 13h16v11H8zM6 9h20v4H6z' fill='white'/></svg>">
+</head>
+<body>
+{% set nav = [
+  ("/", "Tổng quan", "M3 12l9-8 9 8M5 10v10h14V10"),
+  ("/invoices/scan", "Nhập hàng", "M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M7 12h10"),
+  ("/ingredients", "Nguyên liệu", "M4 7h16M4 12h16M4 17h10"),
+  ("/invoices", "Hoá đơn", "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"),
+  ("/recipes", "Định lượng món", "M5 11h14a7 7 0 0 1-14 0zM12 4v4"),
+  ("/sales", "Bán hàng", "M4 19h16M7 16V10M12 16V6M17 16v-4"),
+  ("/stocktake", "Kiểm kê", "M9 5h6M9 3h6v4H9zM6 5H5v16h14V5h-1M9 13l2 2 4-4"),
+  ("/reports", "Báo cáo", "M4 20V4M4 20h16M8 16l4-5 3 3 5-6"),
+  ("/suppliers", "Nhà cung cấp", "M3 7h11v9H3zM14 10h4l3 3v3h-7M7 19a2 2 0 1 0 0-.1M17 19a2 2 0 1 0 0-.1"),
+  ("/settings", "Cài đặt & cảnh báo", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z"),
+] %}
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/">
+      <span class="brand-mark">MW</span>
+      <span><strong>Mai Wok</strong><small>Quản lý kho</small></span>
+    </a>
+    <nav>
+      {% for href, label, icon in nav %}
+      {% set active = (href == "/" and path == "/") or (href != "/" and path.startswith(href) and not (href == "/invoices" and path.startswith("/invoices/scan"))) %}
+      <a href="{{ href }}" class="{{ 'active' if active }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{ icon }}"/></svg>{{ label }}
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot">
+      <span class="pill {{ 'pill-ok' if ocr_provider != 'demo' else 'pill-warn' }}">
+        OCR: {{ {'anthropic': 'Claude', 'openai': 'GPT-4o', 'demo': 'Demo'}.get(ocr_provider, ocr_provider) }}
+      </span>
+      {% if auth_enabled %}<a href="/logout" class="muted">Đăng xuất</a>{% endif %}
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-btn" type="button" aria-label="Mở menu" onclick="document.body.classList.toggle('nav-open')">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <h1>{% block heading %}{% endblock %}</h1>
+      <div class="topbar-actions">{% block actions %}{% endblock %}</div>
+    </header>
+    {% if flash %}<div class="flash flash-{{ flash.kind }}" role="status">{{ flash.message }}</div>{% endif %}
+    {% if alert_flash %}<div class="flash flash-warn" role="status">🔔 {{ alert_flash }}</div>{% endif %}
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+<div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

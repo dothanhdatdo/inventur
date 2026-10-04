@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Báo cáo{% endblock %}
+{% block heading %}Báo cáo & thống kê{% endblock %}
+{% block actions %}
+<form method="get" class="form-row"><select name="days" onchange="this.form.submit()" aria-label="Khoảng thời gian">
+  {% for d in [7, 14, 30, 60, 90] %}<option value="{{ d }}" {{ 'selected' if d == days }}>{{ d }} ngày qua</option>{% endfor %}
+</select></form>
+{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><div class="label">Doanh thu</div><div class="value">{{ revenue|money }}</div></div>
+  <div class="kpi"><div class="label">Giá vốn hàng bán</div><div class="value">{{ cogs|money }}</div></div>
+  <div class="kpi"><div class="label">Food cost %</div><div class="value">{{ '%.1f'|format(cogs / revenue * 100) if revenue else '–' }} %</div></div>
+  <div class="kpi"><div class="label">Tiền nhập hàng</div><div class="value">{{ purchases|money }}</div></div>
+  <div class="kpi alert"><div class="label">Hao hụt & chênh lệch kiểm kê</div><div class="value">{{ losses|sum(attribute=3)|money }}</div></div>
+</div>
+
+<div class="card"><div class="card-head"><h2>Doanh thu & giá vốn theo ngày</h2></div><div class="chart-box"><canvas id="dailyChart"></canvas></div></div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Biến động giá nhập</h2>
+      <form method="get"><input type="hidden" name="days" value="{{ days }}">
+        <select name="ingredient_id" onchange="this.form.submit()" aria-label="Nguyên liệu">
+          {% for i in ingredients %}<option value="{{ i.id }}" {{ 'selected' if i.id == selected }}>{{ i.name }}</option>{% endfor %}
+        </select></form></div>
+    <div class="chart-box"><canvas id="priceChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Thay đổi giá trong kỳ</h2></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nguyên liệu</th><th class="num">Đầu kỳ</th><th class="num">Cuối kỳ</th><th class="num">Thay đổi</th></tr></thead>
+      <tbody>{% for ing, a, b, pct in price_changes[:12] %}
+      <tr><td><a href="?days={{ days }}&ingredient_id={{ ing.id }}">{{ ing.name }}</a></td><td class="num">{{ a|money }}</td><td class="num">{{ b|money }}</td>
+        <td class="num"><span class="pill {{ 'pill-danger' if pct > 3 else ('pill-ok' if pct < -3 else 'pill-muted') }}">{{ '+' if pct > 0 }}{{ '%.1f'|format(pct) }} %</span></td></tr>
+      {% else %}<tr><td colspan="4" class="empty">Chưa có dữ liệu.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Món bán chạy</h2></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Món</th><th class="num">Suất</th><th class="num">Doanh thu</th><th class="num">Food cost</th></tr></thead>
+      <tbody>{% for name, qty, rev, cost in sales %}
+      <tr><td>{{ name }}</td><td class="num">{{ qty }}</td><td class="num">{{ rev|money }}</td><td class="num">{{ '%.1f'|format(cost / rev * 100) if rev else '–' }} %</td></tr>
+      {% else %}<tr><td colspan="4" class="empty">Chưa có dữ liệu.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Hao hụt (Food waste & kiểm kê)</h2></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nguyên liệu</th><th>Loại</th><th class="num">Số lượng</th><th class="num">Giá trị</th></tr></thead>
+      <tbody>{% for name, kind, qty, value, unit in losses %}
+      <tr><td>{{ name }}</td><td><span class="pill {{ 'pill-danger' if kind == 'WASTE' else 'pill-warn' }}">{{ movement_labels.get(kind) }}</span></td><td class="num">{{ qty|qty }} {{ unit }}</td><td class="num">{{ value|money }}</td></tr>
+      {% else %}<tr><td colspan="4" class="empty">Không có hao hụt.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+dailyChart(document.getElementById('dailyChart'), {{ daily|tojson }});
+priceChart(document.getElementById('priceChart'), {{ price_history|tojson }}, '');
+</script>
+{% endblock %}

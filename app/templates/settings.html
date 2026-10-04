@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Cài đặt & cảnh báo{% endblock %}
+{% block heading %}Cài đặt & cảnh báo hàng sắp hết{% endblock %}
+{% block content %}
+<div class="grid grid-2">
+  <form class="card" method="post" action="/settings/alerts">
+    <div class="card-head"><h2>📧 Email cảnh báo</h2>
+      {% if browser_mode %}<span class="pill pill-ok">Gửi qua FormSubmit</span>{% elif smtp_configured %}<span class="pill pill-ok">SMTP đã cấu hình</span>{% else %}<span class="pill pill-warn">Chưa cấu hình SMTP</span>{% endif %}</div>
+    <label for="a-email">Gửi cảnh báo tới (nhiều email cách nhau bằng dấu phẩy)</label>
+    <input id="a-email" name="alert_email" value="{{ alert_email }}" placeholder="ban@example.com">
+    <label class="check" style="margin-top:12px"><input type="checkbox" name="alerts_enabled" value="1" {{ 'checked' if alerts_enabled }}> Tự động gửi email khi nguyên liệu xuống dưới ngưỡng tồn</label>
+    <p class="hint">Mỗi nguyên liệu chỉ được báo một lần khi vừa xuống dưới ngưỡng; nhập thêm hàng lên trên ngưỡng thì cảnh báo được đặt lại.</p>
+    <div class="form-actions"><button class="btn btn-primary">Lưu</button></div>
+    {% if browser_mode %}
+    <p class="hint">Bản chạy trên GitHub Pages gửi email qua dịch vụ miễn phí <strong>FormSubmit.co</strong>. <strong>Lần gửi đầu tiên</strong> tới mỗi địa chỉ, FormSubmit gửi một email “Activate Form” – bấm link kích hoạt trong email đó, các cảnh báo sau sẽ tới bình thường.</p>
+    {% elif not smtp_configured %}
+    <details style="margin-top:12px"><summary>Cách bật gửi email (Gmail)</summary>
+      <ol class="small">
+        <li>Bật xác minh 2 bước cho tài khoản Gmail dùng để gửi.</li>
+        <li>Tạo <strong>App Password</strong> tại myaccount.google.com/apppasswords.</li>
+        <li>Đặt biến môi trường khi deploy: <code>SMTP_HOST=smtp.gmail.com</code>, <code>SMTP_PORT=587</code>, <code>SMTP_USER=&lt;gmail&gt;</code>, <code>SMTP_PASSWORD=&lt;app password&gt;</code>.</li>
+        <li>Khởi động lại app, bấm “Gửi báo cáo ngay” để thử.</li>
+      </ol>
+    </details>
+    {% else %}<p class="hint">Gửi từ <strong>{{ smtp_from }}</strong> qua {{ smtp_host }}.</p>{% endif %}
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>Báo cáo hàng sắp hết</h2><span class="pill {{ 'pill-danger' if low_count else 'pill-ok' }}">{{ low_count }} dưới ngưỡng</span></div>
+    <form method="post" action="/settings/send-report"><button class="btn btn-primary">Gửi báo cáo ngay</button>
+      <a class="btn" href="/ingredients?status=low">Xem danh sách</a></form>
+    <h2 style="margin:18px 0 8px">Lịch sử email</h2>
+    {% if logs %}<ul class="list">{% for l in logs %}
+      <li><span class="small">{{ l.created_at|vdate }} · {{ l.subject }}<br><span class="muted">→ {{ l.recipient }}{{ ' · ' ~ l.detail if l.detail }}</span></span>
+        <span class="pill {{ {'sent': 'pill-ok', 'pending': 'pill-muted'}.get(l.status, 'pill-warn') }}">{{ {'sent': 'Đã gửi', 'pending': 'Đang gửi', 'failed': 'Lỗi', 'not_configured': 'Chưa gửi'}.get(l.status, l.status) }}</span></li>
+    {% endfor %}</ul>{% else %}<p class="empty">Chưa có email nào.</p>{% endif %}
+  </div>
+</div>
+
+<form class="card" method="post" action="/settings/thresholds">
+  <div class="card-head"><h2>Ngưỡng tồn tối thiểu</h2><button class="btn btn-primary">Lưu ngưỡng</button></div>
+  <p class="hint" style="margin-top:-6px">Khi tồn kho thấp hơn ngưỡng, nguyên liệu được đánh dấu “Sắp hết” và hệ thống gửi email. Đặt 0 để tắt cảnh báo cho nguyên liệu đó.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Nguyên liệu</th><th class="num">Tồn hiện tại</th><th class="num">Ngưỡng tối thiểu</th><th></th></tr></thead>
+    <tbody>{% for cat, items in groups.items() %}
+      <tr class="group-row"><td colspan="4">{{ cat }}</td></tr>
+      {% for i in items %}{% set s = stocks.get(i.id, 0) %}
+      <tr class="{{ 'is-low' if i.min_stock > 0 and s < i.min_stock }}"><td>{{ i.name }}</td><td class="num">{{ s|qty }} {{ i.unit }}</td>
+        <td class="num"><input class="qty-input" name="min_{{ i.id }}" inputmode="decimal" value="{{ i.min_stock|qty }}" aria-label="Ngưỡng {{ i.name }}"> {{ i.unit }}</td>
+        <td>{% if i.min_stock > 0 and s < i.min_stock %}<span class="pill pill-warn">Sắp hết</span>{% endif %}</td></tr>
+      {% endfor %}
+    {% endfor %}</tbody>
+  </table></div>
+  <div class="form-actions"><button class="btn btn-primary">Lưu ngưỡng</button></div>
+</form>
+
+<div class="grid grid-2">
+  <form class="card" method="post" action="/settings/ocr">
+    <div class="card-head"><h2>🤖 AI đọc hoá đơn</h2>
+      <span class="pill {{ 'pill-warn' if ocr_provider == 'demo' else 'pill-ok' }}">Đang dùng: {{ {'anthropic': 'Claude', 'openai': 'GPT-4o', 'demo': 'Demo'}.get(ocr_provider, ocr_provider) }}</span></div>
+    <div class="form-grid">
+      <div><label for="o-prov">Nhà cung cấp AI</label>
+        <select id="o-prov" name="ocr_provider">
+          {% for v, l in [('auto', 'Tự động (key nào có thì dùng)'), ('anthropic', 'Claude (Anthropic)'), ('openai', 'GPT-4o (OpenAI)'), ('demo', 'Demo – dữ liệu mẫu')] %}
+          <option value="{{ v }}" {{ 'selected' if ocr_settings.provider == v }}>{{ l }}</option>{% endfor %}
+        </select></div>
+      <div><label for="o-model">Model Claude</label><input id="o-model" name="ocr_anthropic_model" value="{{ ocr_settings.anthropic_model }}"></div>
+      <div><label for="o-ak">Anthropic API key</label>
+        <input id="o-ak" name="ocr_anthropic_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.anthropic_key else 'sk-ant-…' }}"></div>
+      <div><label for="o-ok">OpenAI API key</label>
+        <input id="o-ok" name="ocr_openai_key" type="password" autocomplete="off" placeholder="{{ 'Đã lưu – để trống để giữ nguyên' if ocr_settings.openai_key else 'sk-…' }}"></div>
+    </div>
+    <p class="hint">{% if browser_mode %}Key chỉ được lưu trong trình duyệt này (IndexedDB) và gửi thẳng tới Anthropic/OpenAI, không qua máy chủ nào khác. Không dùng trên máy tính công cộng.{% else %}Key lưu trong database của máy chủ. Có thể đặt bằng biến môi trường ANTHROPIC_API_KEY / OPENAI_API_KEY thay vì nhập ở đây.{% endif %}</p>
+    <label class="check"><input type="checkbox" name="clear_keys" value="1"> Xoá các key đã lưu</label>
+    <div class="form-actions"><button class="btn btn-primary">Lưu cài đặt AI</button></div>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>💾 Sao lưu & dữ liệu</h2></div>
+    {% if browser_mode %}<p class="hint" style="margin-top:-6px">Bản GitHub Pages lưu dữ liệu ngay trong trình duyệt này. Hãy tải bản sao lưu thường xuyên, và dùng nó để chuyển dữ liệu sang máy khác.</p>{% endif %}
+    <div class="form-actions" style="margin-top:0"><a class="btn" href="/settings/backup" download>⬇ Tải bản sao lưu (.db)</a></div>
+    <form method="post" action="/settings/restore" enctype="multipart/form-data" onsubmit="return confirm('Dữ liệu hiện tại sẽ bị thay bằng bản sao lưu. Tiếp tục?')" style="margin-top:14px">
+      <label for="r-file">Khôi phục từ bản sao lưu</label>
+      <div class="form-row"><div><input id="r-file" type="file" name="file" accept=".db,application/x-sqlite3,application/octet-stream" required></div><button class="btn">Khôi phục</button></div>
+    </form>
+    <form method="post" action="/settings/reset" onsubmit="return confirm('Xoá toàn bộ dữ liệu và tạo lại dữ liệu demo?')" style="margin-top:14px">
+      <button class="btn btn-danger btn-sm">Xoá hết & tạo lại dữ liệu demo</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

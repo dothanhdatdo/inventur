@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Thêm nguyên liệu{% endblock %}
+{% block heading %}Thêm nguyên liệu{% endblock %}
+{% block content %}
+<form class="card" method="post" action="/ingredients/new">
+  {% include "_ingredient_fields.html" %}
+  <div class="form-grid" style="margin-top:14px">
+    <div><label for="f-open">Tồn đầu kỳ (tuỳ chọn)</label><input id="f-open" name="opening_stock" inputmode="decimal" placeholder="0"></div>
+  </div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu nguyên liệu</button><a class="btn" href="/ingredients">Huỷ</a></div>
+</form>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Bán hàng{% endblock %}
+{% block heading %}Ghi nhận bán hàng{% endblock %}
+{% block content %}
+<form class="card" method="post" action="/sales">
+  <div class="card-head"><h2>Số món đã bán</h2>
+    <div class="form-row" style="max-width:240px"><div><label for="sold_on">Ngày bán</label><input type="date" id="sold_on" name="sold_on" value="{{ today().isoformat() }}"></div></div></div>
+  <p class="hint" style="margin-top:-4px">Nhập số suất bán (hoặc tổng cuối ngày từ máy POS). Kho tự trừ nguyên liệu theo định lượng, lô cũ xuất trước.</p>
+  <div class="dish-grid">
+    {% for d in dishes %}
+    <label class="dish-card"><span><strong>{{ d.name }}</strong><br><span class="small muted">{{ d.code }} · {{ d.price|money }}{% if not d.items %} · <em>chưa có định lượng</em>{% endif %}</span></span>
+      <input name="dish_{{ d.id }}" type="number" min="0" step="1" placeholder="0" inputmode="numeric"></label>
+    {% endfor %}
+  </div>
+  <div class="form-actions"><button class="btn btn-primary">Ghi nhận & trừ kho</button></div>
+</form>
+<div class="card">
+  <div class="card-head"><h2>14 ngày gần nhất</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Ngày</th><th class="num">Số suất</th><th class="num">Doanh thu</th><th class="num">Giá vốn (FIFO)</th><th class="num">Food cost</th></tr></thead>
+    <tbody>{% for d, qty, rev, cost in recent %}
+    <tr><td>{{ d }}</td><td class="num">{{ qty }}</td><td class="num">{{ rev|money }}</td><td class="num">{{ cost|money }}</td><td class="num">{{ '%.1f'|format(cost / rev * 100) if rev else '–' }} %</td></tr>
+    {% else %}<tr><td colspan="5" class="empty">Chưa có dữ liệu bán hàng.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

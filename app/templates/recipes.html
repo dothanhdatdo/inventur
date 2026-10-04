@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Định lượng món{% endblock %}
+{% block heading %}Định lượng món (BOM){% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/recipes/new">+ Thêm món</a>{% endblock %}
+{% block content %}
+<div class="card">
+  <p class="hint" style="margin-top:0">Mỗi món gắn với lượng nguyên liệu tiêu hao. Khi ghi nhận bán hàng, kho tự trừ theo định lượng. Giá vốn tính theo giá nhập gần nhất.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Món</th><th>Thành phần</th><th class="num">Giá bán</th><th class="num">Giá vốn</th><th class="num">Food cost</th><th></th></tr></thead>
+    <tbody>{% for d in dishes %}
+    {% set fc = (costs[d.id] / d.price * 100) if d.price else 0 %}
+    <tr><td><strong>{{ d.code ~ ' · ' if d.code }}{{ d.name }}</strong></td>
+      <td class="small muted">{% for it in d.items %}{{ it.ingredient.name.split(' / ')[0] }} {{ it.quantity|qty }}{{ it.ingredient.unit }}{{ ', ' if not loop.last }}{% else %}<em>Chưa có định lượng</em>{% endfor %}</td>
+      <td class="num">{{ d.price|money }}</td><td class="num">{{ costs[d.id]|money }}</td>
+      <td class="num"><span class="pill {{ 'pill-ok' if fc < 30 else ('pill-warn' if fc < 38 else 'pill-danger') }}">{{ '%.1f'|format(fc) }} %</span></td>
+      <td><a class="btn btn-sm" href="/recipes/{{ d.id }}">Sửa</a></td></tr>
+    {% else %}<tr><td colspan="6" class="empty">Chưa có món nào.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

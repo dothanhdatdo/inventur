@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ dish.name if dish else 'Món mới' }}{% endblock %}
+{% block heading %}{{ dish.name if dish else 'Thêm món mới' }}{% endblock %}
+{% block actions %}<a class="btn" href="/recipes">← Định lượng món</a>{% endblock %}
+{% block content %}
+<form class="card" method="post" action="/recipes/{{ dish.id if dish else 'new' }}">
+  <div class="form-grid">
+    <div><label for="d-code">Mã món</label><input id="d-code" name="code" value="{{ dish.code if dish else '' }}" placeholder="vd. L6"></div>
+    <div style="grid-column: span 2"><label for="d-name">Tên món *</label><input id="d-name" name="name" required value="{{ dish.name if dish else '' }}"></div>
+    <div><label for="d-price">Giá bán (€)</label><input id="d-price" name="price" inputmode="decimal" value="{{ '%.2f'|format(dish.price) if dish else '' }}"></div>
+  </div>
+  <h2 style="margin:20px 0 10px">Nguyên liệu cho 1 suất</h2>
+  <div id="recipeRows">
+    {% for it in (dish.items if dish else []) %}
+    <div class="recipe-row">
+      <select name="ingredient_id">{% for i in ingredients %}<option value="{{ i.id }}" {{ 'selected' if i.id == it.ingredient_id }}>{{ i.name }}</option>{% endfor %}</select>
+      <input name="quantity" inputmode="decimal" value="{{ it.quantity|qty }}"><span class="unit small muted"></span>
+      <button type="button" class="btn btn-sm" onclick="this.parentElement.remove(); recipeCost()" aria-label="Xoá">✕</button>
+    </div>
+    {% endfor %}
+  </div>
+  <template id="recipeTemplate"><div class="recipe-row">
+    <select name="ingredient_id"><option value="">— chọn —</option>{% for i in ingredients %}<option value="{{ i.id }}">{{ i.name }}</option>{% endfor %}</select>
+    <input name="quantity" inputmode="decimal" placeholder="0"><span class="unit small muted"></span>
+    <button type="button" class="btn btn-sm" onclick="this.parentElement.remove(); recipeCost()" aria-label="Xoá">✕</button>
+  </div></template>
+  <button type="button" class="btn" onclick="addRecipeRow()">+ Thêm nguyên liệu</button>
+  <p><strong>Giá vốn ước tính: <span id="recipeCost">–</span></strong> <span class="muted" id="recipeFc"></span></p>
+  <div class="form-actions">
+    <button class="btn btn-primary" name="action" value="save">Lưu</button>
+    {% if dish %}<button class="btn btn-danger" name="action" value="delete" onclick="return confirm('Xoá món này?')">Xoá món</button>{% endif %}
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}<script>window.INGREDIENTS = {{ ing_json|tojson }}; initRecipe();</script>{% endblock %}
