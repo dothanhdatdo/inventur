@@ -8,7 +8,8 @@
   <div class="line-top">
     <div class="raw"><label>Tên trên hoá đơn</label>
       <input name="raw_name_{{ row }}" value="{{ line.raw_name if line else '' }}" required placeholder="Tên mặt hàng"></div>
-    {% if dup %}<span class="pill pill-danger" style="margin-top:28px" title="Dòng này đã được nhập kho ở hoá đơn cùng số trước đó">Đã nhập rồi</span>{% endif %}
+    {% if dup and line.match_score < -1.5 %}<span class="pill" style="margin-top:28px" title="Dòng chưa gắn này đã được tính tiền ở bản trước của cùng hoá đơn">Đã có ở bản trước</span>
+    {% elif dup %}<span class="pill pill-danger" style="margin-top:28px" title="Dòng này đã được nhập kho ở hoá đơn cùng số trước đó">Đã nhập rồi</span>{% endif %}
     {% if line and line.ingredient_id %}
       {% if line.match_score >= 0.999 %}<span class="pill pill-ok" style="margin-top:28px" title="Đã khớp theo lần nhập trước">Đã nhớ</span>
       {% elif line.match_score > 0 %}<span class="pill pill-warn" style="margin-top:28px" title="Gợi ý tự động">? {{ (line.match_score * 100)|round|int }}%</span>{% endif %}

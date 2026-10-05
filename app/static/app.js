@@ -145,6 +145,7 @@ function factorFor(spec, ing, u) {
   const packMatch = ing.pack_unit && u && u === ing.pack_unit.trim().toLowerCase();
   let f = pieces;
   if (rawKind) f = baseKind && isWeight(rawKind) === isWeight(baseKind) ? UNIT_SCALE[rawKind] / UNIT_SCALE[baseKind] : 1;
+  else if (u && u === ing.unit.trim().toLowerCase()) f = 1;
   else if (baseKind) {
     if (spec.kind && content && isWeight(spec.kind) === isWeight(baseKind)) f = content * UNIT_SCALE[spec.kind] / UNIT_SCALE[baseKind];
     else if (packMatch) f = ing.pack_size || 1;

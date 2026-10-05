@@ -151,9 +151,15 @@ def test_scan_metro_pdf_after_import_flags_duplicates(client, db, monkeypatch):
     # Xác nhận: chỉ các dòng mới được giữ, đồ uống không bị cộng kho lần hai.
     from app.services import stock
 
-    before = stock.stock_map(db)
     _post(client, draft, {}, action="save")
     assert len(_draft(db, draft.id).lines) == 28
+    # Nhập vài hàng bếp; hàng không gắn (vd. bếp từ) vẫn được tính tiền vì lần trước chưa có.
+    r = _post(client, _draft(db, draft.id), {"10l ARO FRITTIEROEL": "new", "REGIO SW-KLEINFLEISCH": "new"})
+    assert "Đã nhập kho 2 mặt hàng" in r.text
+    draft = _draft(db, draft.id)
+    assert draft.subtotal == 704.5 and all(line.match_score >= 0 for line in draft.lines)
+    both = db.scalars(select(Invoice).where(Invoice.invoice_number == draft.invoice_number)).all()
+    assert round(sum(i.subtotal for i in both), 2) == 1595.53
 
 
 def test_scan_metro_pdf_new_items_get_units_areas_and_aliases(client, db, monkeypatch):
@@ -253,13 +259,71 @@ def test_same_pdf_in_two_drafts_is_imported_once(client, db, monkeypatch):
     # Tiền không bị tính hai lần: tổng hai phiếu = tổng hoá đơn.
     both = db.scalars(select(Invoice).where(Invoice.invoice_number == first.invoice_number)).all()
     assert round(sum(i.subtotal for i in both), 2) == 1595.53
-    # Phiếu chỉ còn dòng trùng -> báo lỗi rõ ràng, không nhập gì.
+    # Quét lần ba: các dòng đã nhập được đánh dấu sẵn; bấm Nhập kho như trang hiển thị -> không nhập gì thêm.
     _scan(client)
     third = _draft(db)
-    r = _post(client, third, {"1kg SZ ROHRZUCKER": sugar.id}, keep_unlisted=False)
-    assert "đều đã được nhập kho" in r.text
+    assert {line.raw_name for line in third.lines if line.match_score < 0} == set(names) | {"10l ARO FRITTIEROEL"}
+    suggestions = {line.raw_name: "" for line in third.lines if line.ingredient_id}  # gợi ý mờ cho hàng khác -> bỏ
+    r = _post(client, third, suggestions)
+    assert "Chưa có dòng nào được gắn" in r.text
     db.expire_all()
     assert stock.stock_map(db) == stock_now
+
+
+def test_failed_confirm_changes_nothing(client, db, monkeypatch):
+    monkeypatch.setattr(pdf_invoice, "extract_text", lambda content: FIXTURE)
+    _scan(client)
+    first = _draft(db)
+    _scan(client)
+    second = _draft(db)
+    _post(client, first, {"1kg SZ ROHRZUCKER": "new"})
+    sugar = db.scalars(select(Ingredient).where(Ingredient.name == "1kg SZ ROHRZUCKER")).one()
+    second = _draft(db, second.id)
+    subtotal = second.subtotal
+    r = _post(client, second, {"1kg SZ ROHRZUCKER": sugar.id})
+    assert f"đều đã được nhập kho ở hoá đơn #{first.id}" in r.text
+    second = _draft(db, second.id)
+    assert second.status == "draft" and second.subtotal == subtotal
+    assert all(line.match_score >= 0 for line in second.lines)  # không có cờ "Đã nhập rồi" sai
+
+
+def test_identical_rows_missed_first_time_can_be_added_by_rescanning(client, db, monkeypatch):
+    """METRO in hai dòng giống hệt (2 thùng Chardonnay). Lần đầu chỉ gắn một dòng, quét lại để nhập dòng còn lại."""
+    from app.services import stock
+
+    monkeypatch.setattr(pdf_invoice, "extract_text", lambda content: FIXTURE)
+    wine_name = "0,75l BIO THOLOMIES CHARDONNAY"
+    wine = Ingredient(name="Chardonnay Tholomies 0,75l", unit="chai", area="bar")
+    db.add(wine)
+    db.commit()
+    _scan(client)
+    day1 = _draft(db)
+    form = {"supplier_id": str(day1.supplier_id), "invoice_number": day1.invoice_number, "vat": str(day1.vat),
+            "action": "confirm", "row": []}
+    linked_once = False
+    for i, line in enumerate(day1.lines):
+        form["row"].append(str(i))
+        choice = ""
+        if line.raw_name == wine_name and not linked_once:
+            choice, linked_once = str(wine.id), True
+        form.update({f"line_id_{i}": str(line.id), f"raw_name_{i}": line.raw_name, f"quantity_{i}": str(line.quantity),
+                     f"unit_raw_{i}": line.unit_raw, f"unit_price_{i}": str(line.unit_price),
+                     f"line_total_{i}": str(line.line_total), f"pack_factor_{i}": "6" if choice else str(line.pack_factor),
+                     f"ingredient_id_{i}": choice})
+    client.post(f"/invoices/{day1.id}", data=form, follow_redirects=True)
+    db.expire_all()
+    assert stock.stock_of(db, wine.id) == 6
+    # Hôm sau quét lại: dòng đã nhập được đánh dấu, dòng còn lại tự khớp (đã nhớ) -> nhập được.
+    _scan(client)
+    day2 = _draft(db)
+    wine_rows = [line for line in day2.lines if line.raw_name == wine_name]
+    assert sorted(line.match_score for line in wine_rows) == [-1.0, 1.0]
+    r = _post(client, day2, {})
+    assert "Đã nhập kho 1 mặt hàng" in r.text
+    db.expire_all()
+    assert stock.stock_of(db, wine.id) == 12
+    both = db.scalars(select(Invoice).where(Invoice.invoice_number == day1.invoice_number)).all()
+    assert round(sum(i.subtotal for i in both), 2) == 1595.53
 
 
 def test_kept_duplicate_line_is_not_reticked_after_saving(client, db, monkeypatch):
@@ -275,6 +339,20 @@ def test_kept_duplicate_line_is_not_reticked_after_saving(client, db, monkeypatc
     assert kept.match_score == 0 and kept.ingredient_id == ing.id
     page = client.get(f"/invoices/{draft.id}").text
     assert 'class="del-box" checked' not in page and "Đã nhập rồi" not in page
+    # Người dùng chủ động giữ dòng -> Nhập kho tôn trọng lựa chọn đó.
+    from app.services import stock
+
+    before = stock.stock_of(db, ing.id)
+    r = _post(client, _draft(db, draft.id), {line.raw_name: ing.id})
+    assert "Đã nhập kho" in r.text
+    db.expire_all()
+    assert stock.stock_of(db, ing.id) > before
+
+
+def test_variant_names_are_not_auto_matched():
+    assert matching.similarity("0,50 DPG PET COCA-COLA ZERO", "0,50 DPG PET COCA-COLA") < matching.MATCH_THRESHOLD
+    assert matching.similarity("Coca-Cola Zero 0,33l", "Coca-Cola Zero / Cola Zero") >= matching.MATCH_THRESHOLD
+    assert matching.similarity("Radler alkoholfrei 0,5l", "Radler 0,5l") < matching.MATCH_THRESHOLD
 
 
 def test_total_mismatch_is_reported(client, db, monkeypatch):
@@ -288,3 +366,72 @@ def test_settings_auto_without_key_does_not_claim_scanning_fails(client, db):
     r = client.post("/settings/ocr", data={"ocr_provider": "auto"}, follow_redirects=True)
     assert "PDF của METRO đọc được ngay" in r.text and "quét hoá đơn sẽ báo lỗi" not in r.text
     assert "(thiếu key)" not in r.text
+
+
+def test_manual_row_new_item_uses_size_in_name(client, db):
+    from app.services import stock
+
+    r = client.post("/invoices/manual", follow_redirects=True)
+    invoice = _draft(db)
+    form = {"supplier_id": "", "invoice_number": "", "vat": "0", "action": "confirm", "row": ["0"],
+            "line_id_0": "", "raw_name_0": "10l Frittieröl", "quantity_0": "4", "unit_raw_0": "Kanister",
+            "unit_price_0": "14,99", "line_total_0": "59,96", "pack_factor_0": "1", "ingredient_id_0": "new"}
+    client.post(f"/invoices/{invoice.id}", data=form, follow_redirects=True)
+    db.expire_all()
+    oil = db.scalars(select(Ingredient).where(Ingredient.name == "10l Frittieröl")).one()
+    assert oil.unit == "l" and stock.stock_of(db, oil.id) == 40 and abs(oil.last_price - 1.499) < 1e-3
+
+
+def test_vintage_year_is_not_a_pack_count():
+    spec = matching.line_spec("2022er Jechtinger Eichert Spätburgunder trocken 0,75l", "Fl")
+    assert spec.pieces == 1 and spec.kind == "l" and spec.content == 0.75
+    assert matching.line_spec("0,75l 2022ER OBERKIRCHER", "KT", 6).pieces == 6
+    assert matching.line_spec("6er 0,33l Bier", "KA", 4).pieces == 24
+    chai = Ingredient(name="Spätburgunder", unit="chai")
+    assert matching.guess_pack_factor("2021er Ihringer Grauburgunder 0,75l", "Fl", chai) == 1
+
+
+def test_same_unit_on_invoice_and_in_stock_means_factor_one():
+    karton = Ingredient(name="Coca-Cola Dose (Karton)", unit="Karton")
+    spec = matching.line_spec("Coca-Cola 24x0,33l Dose", "Karton")
+    assert matching.factor_for(spec, "Karton", karton) == 1
+    sack = Ingredient(name="Gạo (bao)", unit="Sack", pack_unit="sack", pack_size=18)
+    assert matching.factor_for(matching.line_spec("Thai Jasminreis 18kg Sack", "Sack"), "Sack", sack) == 1
+
+
+def test_new_item_plans_for_asian_kitchen_goods():
+    from app.services.invoices import new_item_plan
+
+    rice = new_item_plan("Thai Jasminreis Duftreis 18kg Sack", "Sack", None, "", 7)
+    assert (rice.unit, rice.factor, rice.area) == ("kg", 18, "kitchen")
+    paper = new_item_plan("500g REISPAPIER 22CM", "ST", 1, "Hàng khô", 7)
+    assert (paper.unit, paper.factor) == ("kg", 0.5)
+    rolls = new_item_plan("1,5kg FRUEHLINGSROLLEN GEMUESE", "ST", 1, "Đồ đông lạnh", 7)
+    assert (rolls.unit, rolls.factor) == ("kg", 1.5)
+    assert new_item_plan("Müllsäcke 120l", "ST", 1, "", 19).unit == "cái"
+    for name, category in (("120X10g KAFFEESAHNE 10%", "Đồ mát / Mopro"), ("1000x3,5g RIOBA ZUCKERSTICKS", "Hàng khô"),
+                           ("MPRO 12ER BILLY AUSGIESSER", "Dụng cụ / Nonfood")):
+        assert new_item_plan(name, "PG", 1, category, 7).area == "bar", name
+
+
+def test_same_number_from_another_new_supplier_is_not_a_duplicate(client, db):
+    from app.db import Supplier
+    from app.services import invoices as invoice_service
+    from app.services.ocr import ParsedInvoice, ParsedLine
+
+    rice = Ingredient(name="Gạo", unit="kg")
+    asia = Supplier(name="Asia Markt Freiburg")
+    db.add_all([rice, asia])
+    db.commit()
+    line = ParsedLine(name="Jasminreis 20kg", quantity=2, unit="Sack", unit_price=29, total=58, vat_rate=7)
+    first = invoice_service.create_draft(db, ParsedInvoice(supplier="Asia Markt Freiburg", invoice_number="2026-001",
+                                                           lines=[line], source="demo"), "", "")
+    first.lines[0].ingredient_id = rice.id
+    invoice_service.confirm(db, first)
+    db.commit()
+    other = invoice_service.create_draft(db, ParsedInvoice(supplier="Großhandel Nguyen", invoice_number="2026-001",
+                                                           lines=[line], source="demo"), "", "")
+    assert other.lines[0].match_score >= 0 and invoice_service.duplicate_of(db, other) is None
+    same = invoice_service.create_draft(db, ParsedInvoice(supplier="Asia Markt Freiburg", invoice_number="2026-001",
+                                                          lines=[line], source="demo"), "", "")
+    assert same.lines[0].match_score < 0

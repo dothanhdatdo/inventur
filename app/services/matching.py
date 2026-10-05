@@ -41,8 +41,22 @@ def tokens(text: str) -> set[str]:
     return {t for t in normalize(text).split() if t not in STOPWORDS and not t.isdigit() and len(t) > 1}
 
 
+# Biến thể sản phẩm: "Coca-Cola Zero" không phải "Coca-Cola", "Radler alkoholfrei" không phải "Radler".
+VARIANT_TOKENS = {"zero", "light", "diet", "alkoholfrei", "koffeinfrei", "laktosefrei", "glutenfrei", "vegan",
+                  "ohne", "zuckerfrei", "decaf", "rose", "weiss", "rot"}
+
+
 def similarity(raw: str, candidate: str) -> float:
     """Điểm 0..1 giữa tên trên HĐ và một tên nguyên liệu (có thể dạng "Việt / Đức")."""
+    score = _similarity(raw, candidate)
+    raw_variants = set(normalize(raw).split()) & VARIANT_TOKENS
+    cand_variants = set(normalize(candidate).split()) & VARIANT_TOKENS
+    if raw_variants != cand_variants:
+        score = round(score * 0.5, 3)  # khác biến thể -> không tự gắn
+    return score
+
+
+def _similarity(raw: str, candidate: str) -> float:
     raw_tokens = tokens(raw)
     best = 0.0
     for part in re.split(r"[/|()]", candidate):
@@ -118,7 +132,8 @@ def match_line(
 BOTTLE_SIZE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s+(?:MW|DPG|PG|EW|E)\b", re.I)
 SIZE_IN_NAME = re.compile(r"(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b", re.I)
 MULTI_SIZE = re.compile(r"(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b", re.I)  # "10x80g", "120X10g"
-COUNT_IN_NAME = re.compile(r"\b(\d+)\s*er\b", re.I)  # "12ER BILLY AUSGIESSER", "6er Pack"
+# "12ER BILLY AUSGIESSER", "6er Pack" – tối đa 3 chữ số, để năm rượu "2022er Spätburgunder" không bị hiểu là 2022 cái.
+COUNT_IN_NAME = re.compile(r"(?<![\d.,])(\d{1,3})\s*er\b", re.I)
 
 
 @dataclass
@@ -142,17 +157,17 @@ def line_spec(raw_name: str, unit_raw: str = "", units_per_pack: float | None = 
         content = hint * count * _convert(to_number(multi.group(2)), unit, kind)
         return LineSpec(hint * count, round(content, 6), kind, multipack=True)
     count = COUNT_IN_NAME.search(name)
-    if count and int(count.group(1)) > 1:
-        return LineSpec(hint * int(count.group(1)), multipack=True)
+    pieces = int(count.group(1)) if count and int(count.group(1)) > 1 else 1
     size = SIZE_IN_NAME.search(name)
     if size:
         unit = size.group(2).lower()
         kind = "kg" if unit in ("kg", "g") else "l"
-        return LineSpec(hint, round(hint * _convert(to_number(size.group(1)), unit, kind), 6), kind)
+        content = hint * pieces * _convert(to_number(size.group(1)), unit, kind)
+        return LineSpec(hint * pieces, round(content, 6), kind, multipack=pieces > 1)
     bottle = BOTTLE_SIZE.search(name)
     if bottle:
-        return LineSpec(hint, round(hint * to_number(bottle.group(1)), 6), "l")
-    return LineSpec(hint)
+        return LineSpec(hint * pieces, round(hint * pieces * to_number(bottle.group(1)), 6), "l", multipack=pieces > 1)
+    return LineSpec(hint * pieces, multipack=pieces > 1)
 
 
 def factor_for(spec: LineSpec, unit_raw: str, ingredient: Ingredient) -> float:
@@ -162,6 +177,8 @@ def factor_for(spec: LineSpec, unit_raw: str, ingredient: Ingredient) -> float:
     unit = normalize(unit_raw)
     if raw_kind:  # hàng cân/đong: số lượng trên HĐ đã là kg/l
         return _convert(1.0, raw_kind, base_kind) if base_kind else 1.0
+    if unit and unit == normalize(ingredient.unit):  # HĐ tính cùng đơn vị với kho (vd. Karton -> Karton)
+        return 1.0
     if base_kind:
         if spec.kind and spec.content and (spec.kind == "kg") == (base_kind in ("kg", "g")):
             return round(_convert(spec.content, spec.kind, base_kind), 6)
@@ -218,7 +235,7 @@ def guess_pack_factor(raw_name: str, unit_raw: str, ingredient: Ingredient) -> f
     single = re.search(r"(\d+(?:\.\d+)?)\s*(kg|g|l|ml)\b", text)
     if single and base_kind:
         return _convert(float(single.group(1)), single.group(2), base_kind)
-    count_only = re.search(r"(\d+)\s*(?:x|stk|st|er)\b", text)
+    count_only = re.search(r"(?<![\d.])(\d{1,3})\s*(?:x|stk|st|er)\b", text)
     if count_only and base_kind is None:
         return float(count_only.group(1))
     if ingredient.pack_unit and ingredient.pack_size and unit in ("ka", "krt", "karton", "kiste", "thung"):

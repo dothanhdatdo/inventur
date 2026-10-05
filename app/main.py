@@ -755,6 +755,8 @@ def _create_ingredient_from_line(db: Session, line: InvoiceLine) -> Ingredient:
     name = line.raw_name.strip()[:200]
     plan = invoice_service.line_plan(line)
     factor = line.pack_factor if line.pack_factor and line.pack_factor > 0 else plan.factor
+    if abs(factor - 1) < 1e-9:
+        factor = plan.factor  # dòng thêm tay (chưa có quy đổi gợi ý): lấy theo tên, vd. "10l Frittieröl" -> 10 l / can
     existing = db.scalars(select(Ingredient).where(Ingredient.name == name)).first()
     if existing:
         existing.active = 1

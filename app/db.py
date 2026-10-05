@@ -94,7 +94,7 @@ class InvoiceLine(Base):
     ingredient_id: Mapped[int | None] = mapped_column(ForeignKey("ingredients.id"), nullable=True)
     pack_factor: Mapped[float] = mapped_column(Float, default=1.0)  # đơn vị cơ sở / 1 đơn vị trên HĐ
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    match_score: Mapped[float] = mapped_column(Float, default=0.0)  # -1 = trùng hoá đơn đã nhập kho
+    match_score: Mapped[float] = mapped_column(Float, default=0.0)  # -1 = đã nhập ở bản khác của HĐ, -2 = đã tính ở bản trước
     category_hint: Mapped[str] = mapped_column(String(100), default="", server_default="")
     units_per_pack: Mapped[float | None] = mapped_column(Float, nullable=True)  # số cái / đơn vị HĐ nếu HĐ ghi (METRO)
 

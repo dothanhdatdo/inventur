@@ -61,6 +61,11 @@ NONFOOD_STEMS = (
     "papier", "rolle", "propan", "gasflasche", "kerze", "schwamm", "desinfekt", "seife", "teller", "becher", "strohhalm", "trinkhalm",
 )
 NONFOOD_TOKENS = {"hop", "tui", "gang", "khan", "giay", "ong", "hut"}
+# Từ chỉ cách đóng gói ("18kg Sack", "Beutel") không làm hàng thành phi thực phẩm; và món ăn có chữ giống đồ dùng.
+PACK_WORDS = {"sack", "beutel", "box", "rolle", "rollen", "schale", "tute", "dose", "karton", "folie"}
+FOOD_COMPOUNDS = ("reispapier", "fruhlingsroll", "fruehlingsroll", "sommerroll", "eierroll", "papierreis", "frischkase")
+# Đồ dùng cho quầy cà phê / bar (nhóm METRO là Mopro, Nährmittel, Nonfood nhưng thuộc quầy).
+BAR_SERVICE_STEMS = ("kaffeesahne", "kaffeemilch", "zuckerstick", "kaffeerahm", "ausgiesser", "ausgieser", "cocktailshaker", "barsieb")
 # Danh mục cũ (trước khi có khu vực) được xem là đồ uống.
 DRINK_CATEGORY_WORDS = (
     "do uong", "getrank", "drink", "bia", "bier", "ruou", "wein", "softdrink", "softdrinks", "nuoc ngot", "nuoc ep",
@@ -105,7 +110,16 @@ def looks_like_drink(name: str) -> bool:
 
 
 def looks_like_nonfood(name: str) -> bool:
-    return any(t in NONFOOD_TOKENS or any(stem in t for stem in NONFOOD_STEMS) for t in _tokens(name))
+    tokens = _tokens(name)
+    if any(food in t for t in tokens for food in FOOD_COMPOUNDS):
+        return False
+    return any(
+        t in NONFOOD_TOKENS or (t not in PACK_WORDS and any(stem in t for stem in NONFOOD_STEMS)) for t in tokens
+    )
+
+
+def looks_like_bar_service(name: str) -> bool:
+    return any(stem in t for t in _tokens(name) for stem in BAR_SERVICE_STEMS)
 
 
 def normalize_area(value: str | None, default: str = KITCHEN) -> str:
@@ -127,10 +141,12 @@ def is_kitchen_category(category: str) -> bool:
 def guess_area(name: str = "", category: str = "", vat_rate: float | None = None) -> str:
     """Đoán khu cho hàng mới.
 
-    Thứ tự: nhóm hàng đồ uống -> nhóm hàng bếp -> tên giống đồ uống -> hàng không phải thực phẩm (bếp)
+    Thứ tự: nhóm hàng đồ uống -> đồ dùng quầy cà phê/bar -> nhóm hàng bếp -> tên giống đồ uống -> hàng không phải thực phẩm (bếp)
     -> VAT 19% (ở Đức đồ uống chịu 19%, thực phẩm 7%) -> mặc định bếp.
     """
     if category and is_drink_category(category):
+        return BAR
+    if looks_like_bar_service(name):  # Kaffeesahne, Zuckersticks, Ausgießer: nhóm Mopro/Nonfood nhưng dùng ở quầy
         return BAR
     if category and is_kitchen_category(category):
         return KITCHEN
