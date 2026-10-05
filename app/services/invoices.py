@@ -21,6 +21,7 @@ PACK_CODES = {
 COUNT_UNITS = ("cái", "chai")
 DUPLICATE = -1.0  # match_score: dòng đã nhập kho ở bản khác của cùng hoá đơn
 COUNTED_BEFORE = -2.0  # match_score: dòng chưa gắn, tiền đã tính ở bản trước của cùng hoá đơn
+KEPT = -3.0  # match_score: người dùng bỏ dấu "trùng" và vẫn gắn nguyên liệu -> vẫn nhập
 
 
 @dataclass
@@ -114,8 +115,7 @@ def create_draft(session: Session, parsed: ParsedInvoice, file_path: str, file_t
     )
     session.add(invoice)
     ingredients = list(session.scalars(select(Ingredient).where(Ingredient.active == 1)).all())
-    invoice.supplier = supplier
-    already = previous_lines(session, invoice)
+    booked = _linked_lines(same_invoices(session, invoice, "confirmed"))
     for pos, line in enumerate(parsed.lines):
         m = matching.match_line(
             session, invoice.supplier_id, line.name, line.unit, ingredients, getattr(line, "units_per_pack", None)
@@ -134,13 +134,12 @@ def create_draft(session: Session, parsed: ParsedInvoice, file_path: str, file_t
             expiry_date=getattr(line, "expiry", None),
             category_hint=getattr(line, "category", "") or "",
             units_per_pack=getattr(line, "units_per_pack", None),
+            source_row=pos,
         )
         if new_line.ingredient_id is None:
             new_line.pack_factor = line_plan(new_line).factor  # sẵn sàng cho "+ Tạo nguyên liệu mới"
-        key = line_key(line.name, line.quantity)
-        if already.get(key, 0) > 0:
-            # Dòng này đã được nhập kho trong hoá đơn cùng số trước đó -> bỏ gắn để không nhập trùng.
-            already[key] -= 1
+        if take_same_row(booked, new_line) is not None:
+            # Dòng này đã được nhập kho ở bản khác của cùng hoá đơn -> bỏ gắn để không nhập trùng.
             new_line.ingredient_id = None
             new_line.match_score = DUPLICATE
         invoice.lines.append(new_line)
@@ -155,40 +154,41 @@ def create_draft(session: Session, parsed: ParsedInvoice, file_path: str, file_t
 
 
 def same_invoices(session: Session, invoice: Invoice, status: str) -> list[Invoice]:
-    """Các bản khác của cùng hoá đơn: cùng số và cùng nhà cung cấp (so theo id, hoặc theo tên nếu NCC chưa có trong kho)."""
+    """Các bản khác của cùng hoá đơn (cùng số hoá đơn).
+
+    Không lọc theo nhà cung cấp: cùng một hoá đơn METRO có thể được gán NCC khác tên ("METRO" / "METRO Gundelfingen").
+    Từng dòng còn được so tên + số lượng (take_same_row), nên hoá đơn khác trùng số không bị nhận nhầm.
+    """
     number = (invoice.invoice_number or "").strip()
     if not number:
         return []
     query = select(Invoice).where(Invoice.invoice_number == number, Invoice.status == status)
     if invoice.id is not None:
         query = query.where(Invoice.id != invoice.id)
-    own_name = matching.normalize(invoice.supplier.name if invoice.supplier else invoice.supplier_name_raw)
-    result = []
-    for other in session.scalars(query.order_by(Invoice.id)).all():
-        if invoice.supplier_id is not None and other.supplier_id is not None:
-            if other.supplier_id != invoice.supplier_id:
+    return list(session.scalars(query.order_by(Invoice.id)).all())
+
+
+def _linked_lines(invoices: list[Invoice]) -> list[InvoiceLine]:
+    return [line for inv in invoices for line in inv.lines if line.ingredient_id is not None]
+
+
+def take_same_row(pool: list[InvoiceLine], line: InvoiceLine) -> InvoiceLine | None:
+    """Tìm (và lấy ra khỏi pool) dòng tương ứng của bản khác của cùng hoá đơn.
+
+    Hai lần quét cùng một PDF: so đúng số thứ tự dòng (+ tên, số lượng) -> hai dòng giống hệt nhau
+    (METRO in 2 dòng cho 2 thùng) vẫn phân biệt được. Dữ liệu không có số dòng (nhập tay, bản cũ): so tên + số lượng.
+    """
+    key = line_key(line.raw_name, line.quantity)
+    for exact in (True, False):
+        for cand in pool:
+            both_rows = cand.source_row is not None and line.source_row is not None
+            if exact != both_rows or line_key(cand.raw_name, cand.quantity) != key:
                 continue
-        else:
-            other_name = matching.normalize(other.supplier.name if other.supplier else other.supplier_name_raw)
-            if own_name and other_name and own_name != other_name:
+            if both_rows and cand.source_row != line.source_row:
                 continue
-        result.append(other)
-    return result
-
-
-def _line_counts(invoices: list[Invoice], linked: bool = True) -> dict[tuple[str, float], int]:
-    counts: dict[tuple[str, float], int] = {}
-    for other in invoices:
-        for line in other.lines:
-            if (line.ingredient_id is not None) == linked and counts_in_totals(line):
-                key = line_key(line.raw_name, line.quantity)
-                counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def previous_lines(session: Session, invoice: Invoice) -> dict[tuple[str, float], int]:
-    """Các dòng đã nhập kho của (những) bản khác của cùng hoá đơn – để phát hiện quét trùng."""
-    return _line_counts(same_invoices(session, invoice, "confirmed"))
+            pool.remove(cand)
+            return cand
+    return None
 
 
 def duplicate_of(session: Session, invoice: Invoice) -> Invoice | None:
@@ -237,39 +237,43 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
     when = datetime.combine(invoice.invoice_date, time(9, 0)) if invoice.invoice_date else datetime.now()
     ref = f"HĐ #{invoice.id}" + (f" ({invoice.invoice_number})" if invoice.invoice_number else "")
     unlinked: list[str] = []
-    # Bản khác của cùng hoá đơn đã nhập kho. Bản nhập TRƯỚC khi quét phiếu này đã được đánh dấu lúc quét (create_draft);
-    # bản nhập SAU đó (vd. hai phiếu nháp của cùng một PDF) thì kiểm tra ở đây để không cộng kho hai lần.
+    # Chốt chặn: dòng đã nhập kho ở bản khác của cùng hoá đơn (vd. hai phiếu nháp của cùng một PDF) không nhập lần nữa,
+    # trừ khi người dùng đã chủ động giữ lại dòng bị đánh dấu trùng (KEPT).
     copies = same_invoices(session, invoice, "confirmed")
-    newer = [c for c in copies if c.confirmed_at and invoice.created_at and c.confirmed_at >= invoice.created_at]
-    already = _line_counts(newer)
+    booked = _linked_lines(copies)
+    for line in invoice.lines:  # dòng đã đánh dấu trùng lúc quét giữ chỗ của dòng tương ứng
+        if line.ingredient_id is None and line.match_score == DUPLICATE:
+            take_same_row(booked, line)
     to_import: list[InvoiceLine] = []
-    duplicates: list[InvoiceLine] = []
+    duplicates: list[tuple[InvoiceLine, InvoiceLine]] = []
     for line in invoice.lines:
         if not line.ingredient_id:
             if counts_in_totals(line):
                 unlinked.append(line.raw_name)
             continue
-        key = line_key(line.raw_name, line.quantity)
-        if already.get(key, 0) > 0:
-            already[key] -= 1
-            duplicates.append(line)
-            continue
+        if line.match_score != KEPT:
+            earlier = take_same_row(booked, line)
+            if earlier is not None:
+                duplicates.append((line, earlier))
+                continue
         if line.quantity * (line.pack_factor or 1.0) <= 0:
             notes.append(f"Bỏ qua (số lượng 0): {line.raw_name}")
             continue
         to_import.append(line)
     if not to_import:  # chưa thay đổi gì -> báo lỗi, phiếu giữ nguyên
         if duplicates:
-            raise ConfirmError(f"Các dòng đã gắn đều đã được nhập kho ở hoá đơn #{newer[0].id} cùng số – không nhập lại.")
+            raise ConfirmError(
+                f"Các dòng đã gắn đều đã được nhập kho ở hoá đơn #{duplicates[0][1].invoice_id} cùng số – không nhập lại. "
+                "Nếu thật sự muốn nhập lại một dòng: bỏ dấu “Bỏ” ở dòng đó, gắn nguyên liệu rồi bấm Nhập kho."
+            )
         raise ConfirmError("Chưa có dòng nào được gắn với nguyên liệu trong kho.")
-    for line in duplicates:
+    for line, _ in duplicates:
         line.ingredient = None
         line.ingredient_id = None
         line.match_score = DUPLICATE
-    _drop_from_totals(invoice, duplicates)
+    _drop_from_totals(invoice, [line for line, _ in duplicates])
     when = datetime.combine(invoice.invoice_date, time(9, 0)) if invoice.invoice_date else datetime.now()
     ref = f"HĐ #{invoice.id}" + (f" ({invoice.invoice_number})" if invoice.invoice_number else "")
-    imported_keys: dict[tuple[str, float], int] = {}
     for line in to_import:
         base_qty = line.quantity * (line.pack_factor or 1.0)
         total = line.line_total or line.quantity * line.unit_price
@@ -288,26 +292,24 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
         if ingredient.supplier_id is None:
             ingredient.supplier_id = invoice.supplier_id
         matching.remember(session, invoice.supplier_id, line.raw_name, ingredient.id, line.pack_factor or 1.0)
-        key = line_key(line.raw_name, line.quantity)
-        imported_keys[key] = imported_keys.get(key, 0) + 1
     if copies:
         # Hoá đơn này đã có bản nhập kho trước (nhập bổ sung bằng cách quét lại). Để tiền không bị tính hai lần:
         # dòng vừa nhập được bỏ khỏi bản cũ (nếu ở đó còn chưa gắn); dòng chưa gắn mà bản cũ đã tính thì phiếu này không tính.
-        covered = _line_counts(copies, linked=True)
-        for key, count in _line_counts(copies, linked=False).items():
-            covered[key] = covered.get(key, 0) + max(count - imported_keys.get(key, 0), 0)
+        earlier_unlinked = [line for inv in copies for line in inv.lines if line.ingredient_id is None and counts_in_totals(line)]
+        for line in to_import:
+            moved = take_same_row(earlier_unlinked, line)
+            if moved is not None:
+                _drop_from_totals(moved.invoice, [moved])
+                moved.invoice.lines.remove(moved)
+        counted = _linked_lines(copies) + earlier_unlinked
         counted_before = []
         for line in invoice.lines:
-            if line.ingredient_id is None and counts_in_totals(line):
-                key = line_key(line.raw_name, line.quantity)
-                if covered.get(key, 0) > 0:
-                    covered[key] -= 1
-                    line.match_score = COUNTED_BEFORE
-                    counted_before.append(line)
+            if line.ingredient_id is None and counts_in_totals(line) and take_same_row(counted, line) is not None:
+                line.match_score = COUNTED_BEFORE
+                counted_before.append(line)
         _drop_from_totals(invoice, counted_before)
-        _move_from_earlier(copies, imported_keys)
     if duplicates:
-        notes.append(f"Bỏ qua {len(duplicates)} dòng đã nhập kho ở hoá đơn #{newer[0].id} cùng số")
+        notes.append(f"Bỏ qua {len(duplicates)} dòng đã nhập kho ở hoá đơn #{duplicates[0][1].invoice_id} cùng số")
     invoice.status = "confirmed"
     invoice.confirmed_at = datetime.now()
     notes.insert(0, f"Đã nhập kho {len(to_import)} mặt hàng.")
@@ -315,22 +317,6 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
         shown = ", ".join(unlinked[:5]) + (f" … (+{len(unlinked) - 5})" if len(unlinked) > 5 else "")
         notes.insert(1, f"Bỏ qua {len(unlinked)} dòng chưa gắn nguyên liệu: {shown}")
     return notes
-
-
-def _move_from_earlier(copies: list[Invoice], imported_keys: dict[tuple[str, float], int]) -> None:
-    """Dòng chưa gắn ở bản trước của cùng hoá đơn, nay đã nhập ở phiếu này -> bỏ khỏi bản cũ."""
-    remaining = dict(imported_keys)
-    for other in copies:
-        moved = []
-        for line in list(other.lines):
-            key = line_key(line.raw_name, line.quantity)
-            if line.ingredient_id is None and counts_in_totals(line) and remaining.get(key, 0) > 0:
-                remaining[key] -= 1
-                moved.append(line)
-        if moved:
-            _drop_from_totals(other, moved)
-            for line in moved:
-                other.lines.remove(line)
 
 
 def next_position(session: Session, invoice_id: int) -> int:

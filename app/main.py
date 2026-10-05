@@ -639,7 +639,7 @@ async def invoice_scan(request: Request, file: UploadFile = File(None), db: Sess
         flash(request, msg)
     elif parsed.source != "manual":
         flash(request, f"AI đã đọc {len(invoice.lines)} dòng. Hãy kiểm tra trước khi nhập kho.")
-    if previous is not None:
+    if previous is not None and duplicates:
         warnings.append(
             f"Hoá đơn số {invoice.invoice_number} đã được nhập kho trước đó (#{previous.id}). "
             f"{len(duplicates)} dòng trùng đã được bỏ gắn để không nhập kho hai lần."
@@ -740,7 +740,7 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
         else:
             line.ingredient_id = int(choice) if choice.isdigit() else None
         if line.ingredient_id and (line.match_score or 0) < 0:
-            line.match_score = 0.0  # người dùng chủ động giữ dòng đã đánh dấu trùng
+            line.match_score = invoice_service.KEPT  # người dùng chủ động giữ dòng đã đánh dấu trùng -> vẫn nhập
         keep.append(line)
     for line in list(invoice.lines):
         if line not in keep:

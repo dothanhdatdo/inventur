@@ -42,22 +42,18 @@ def tokens(text: str) -> set[str]:
 
 
 # Biến thể sản phẩm: "Coca-Cola Zero" không phải "Coca-Cola", "Radler alkoholfrei" không phải "Radler".
-VARIANT_TOKENS = {"zero", "light", "diet", "alkoholfrei", "koffeinfrei", "laktosefrei", "glutenfrei", "vegan",
-                  "ohne", "zuckerfrei", "decaf", "rose", "weiss", "rot"}
+# (Chỉ biến thể thật; không dùng màu "rot/weiss" vì "Cà rốt" -> "ca rot".)
+VARIANT_TOKENS = {"zero", "light", "diet", "alkoholfrei", "koffeinfrei", "laktosefrei", "glutenfrei", "zuckerfrei", "decaf"}
+
+
+def _variants(text: str) -> set[str]:
+    return set(normalize(text).split()) & VARIANT_TOKENS
 
 
 def similarity(raw: str, candidate: str) -> float:
     """Điểm 0..1 giữa tên trên HĐ và một tên nguyên liệu (có thể dạng "Việt / Đức")."""
-    score = _similarity(raw, candidate)
-    raw_variants = set(normalize(raw).split()) & VARIANT_TOKENS
-    cand_variants = set(normalize(candidate).split()) & VARIANT_TOKENS
-    if raw_variants != cand_variants:
-        score = round(score * 0.5, 3)  # khác biến thể -> không tự gắn
-    return score
-
-
-def _similarity(raw: str, candidate: str) -> float:
     raw_tokens = tokens(raw)
+    raw_variants = _variants(raw)
     best = 0.0
     for part in re.split(r"[/|()]", candidate):
         part = part.strip()
@@ -81,7 +77,10 @@ def _similarity(raw: str, candidate: str) -> float:
             hits += score if score >= 0.75 else 0
         token_score = hits / len(cand_tokens)
         seq = SequenceMatcher(None, " ".join(sorted(raw_tokens)), " ".join(sorted(cand_tokens))).ratio()
-        best = max(best, 0.75 * token_score + 0.25 * seq)
+        score = 0.75 * token_score + 0.25 * seq
+        if _variants(part) != raw_variants:
+            score *= 0.5  # khác biến thể ("Coca-Cola Zero" ≠ "Coca-Cola") -> không tự gắn
+        best = max(best, score)
     return round(best, 3)
 
 

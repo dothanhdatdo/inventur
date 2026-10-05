@@ -336,7 +336,7 @@ def test_kept_duplicate_line_is_not_reticked_after_saving(client, db, monkeypatc
     _post(client, draft, {line.raw_name: ing.id}, action="save")
     db.expire_all()
     kept = db.get(type(line), line.id)
-    assert kept.match_score == 0 and kept.ingredient_id == ing.id
+    assert kept.match_score == -3 and kept.ingredient_id == ing.id
     page = client.get(f"/invoices/{draft.id}").text
     assert 'class="del-box" checked' not in page and "Đã nhập rồi" not in page
     # Người dùng chủ động giữ dòng -> Nhập kho tôn trọng lựa chọn đó.
@@ -414,24 +414,83 @@ def test_new_item_plans_for_asian_kitchen_goods():
         assert new_item_plan(name, "PG", 1, category, 7).area == "bar", name
 
 
-def test_same_number_from_another_new_supplier_is_not_a_duplicate(client, db):
+def test_rescan_with_renamed_supplier_is_still_recognised(client, db, monkeypatch):
+    """Đã đổi tên NCC thành "METRO" -> quét lại PDF (NCC "METRO Gundelfingen" không tìm thấy) vẫn nhận ra hoá đơn đã nhập."""
     from app.db import Supplier
-    from app.services import invoices as invoice_service
-    from app.services.ocr import ParsedInvoice, ParsedLine
+    from app.services import stock
 
-    rice = Ingredient(name="Gạo", unit="kg")
-    asia = Supplier(name="Asia Markt Freiburg")
-    db.add_all([rice, asia])
+    imports.apply_invoice_import(db, metro)
+    supplier = db.scalars(select(Supplier).where(Supplier.name == "METRO Gundelfingen")).one()
+    supplier.name = "METRO"
     db.commit()
-    line = ParsedLine(name="Jasminreis 20kg", quantity=2, unit="Sack", unit_price=29, total=58, vat_rate=7)
-    first = invoice_service.create_draft(db, ParsedInvoice(supplier="Asia Markt Freiburg", invoice_number="2026-001",
-                                                           lines=[line], source="demo"), "", "")
-    first.lines[0].ingredient_id = rice.id
-    invoice_service.confirm(db, first)
+    monkeypatch.setattr(pdf_invoice, "extract_text", lambda content: FIXTURE)
+    before = stock.stock_map(db)
+    r = _scan(client)
+    draft = _draft(db)
+    assert draft.supplier_id is None and "24 dòng trùng" in r.text
+    assert sum(1 for line in draft.lines if line.match_score < 0) == 24
+    # Dù người dùng gắn lại một dòng đồ uống, Nhập kho vẫn chặn (không ghi đè): chỉ khi bỏ dấu "Bỏ" + lưu nháp mới nhập lại.
+    draft.lines[0].ingredient_id = None
+    r = _post(client, draft, {"10l ARO FRITTIEROEL": "new"}, keep_unlisted=True)
+    db.expire_all()
+    after = stock.stock_map(db)
+    assert all(after[k] == v for k, v in before.items())
+
+
+def test_identical_rows_in_two_drafts(client, db, monkeypatch):
+    from app.services import stock
+
+    monkeypatch.setattr(pdf_invoice, "extract_text", lambda content: FIXTURE)
+    wine_name = "0,75l BIO THOLOMIES CHARDONNAY"
+    wine = Ingredient(name="Chardonnay Tholomies 0,75l", unit="chai", area="bar")
+    db.add(wine)
     db.commit()
-    other = invoice_service.create_draft(db, ParsedInvoice(supplier="Großhandel Nguyen", invoice_number="2026-001",
-                                                           lines=[line], source="demo"), "", "")
-    assert other.lines[0].match_score >= 0 and invoice_service.duplicate_of(db, other) is None
-    same = invoice_service.create_draft(db, ParsedInvoice(supplier="Asia Markt Freiburg", invoice_number="2026-001",
-                                                          lines=[line], source="demo"), "", "")
-    assert same.lines[0].match_score < 0
+    _scan(client)
+    first = _draft(db)
+    _scan(client)
+    second = _draft(db)
+
+    def link_one(draft, which):
+        rows = [line for line in draft.lines if line.raw_name == wine_name]
+        form = {"supplier_id": "", "invoice_number": draft.invoice_number, "vat": str(draft.vat), "action": "confirm", "row": []}
+        for i, line in enumerate(draft.lines):
+            form["row"].append(str(i))
+            choice = str(wine.id) if line is rows[which] else ""
+            form.update({f"line_id_{i}": str(line.id), f"raw_name_{i}": line.raw_name, f"quantity_{i}": str(line.quantity),
+                         f"unit_raw_{i}": line.unit_raw, f"unit_price_{i}": str(line.unit_price),
+                         f"line_total_{i}": str(line.line_total), f"pack_factor_{i}": "6" if choice else "1",
+                         f"ingredient_id_{i}": choice})
+        return client.post(f"/invoices/{draft.id}", data=form, follow_redirects=True)
+
+    link_one(first, 0)
+    r = link_one(_draft(db, second.id), 1)  # dòng thứ hai (thùng thứ hai) ở phiếu kia
+    assert "Đã nhập kho 1 mặt hàng" in r.text and "đã nhập kho ở hoá đơn" not in r.text
+    db.expire_all()
+    assert stock.stock_of(db, wine.id) == 12
+    _scan(client)  # quét lần ba: cả hai dòng rượu đã được đánh dấu "Đã nhập rồi"
+    third = _draft(db)
+    assert [line.match_score for line in third.lines if line.raw_name == wine_name] == [-1.0, -1.0]
+    r = _post(client, third, {line.raw_name: "" for line in third.lines if line.ingredient_id})
+    assert "Chưa có dòng nào được gắn" in r.text
+    db.expire_all()
+    assert stock.stock_of(db, wine.id) == 12
+    both = db.scalars(select(Invoice).where(Invoice.invoice_number == first.invoice_number, Invoice.status == "confirmed")).all()
+    assert round(sum(i.subtotal for i in both), 2) == 1595.53
+
+
+def test_variant_and_colour_words():
+    carrot = "Cà rốt / Karotten"
+    assert matching.similarity("Karotten 10kg Sack", carrot) >= matching.MATCH_THRESHOLD
+    assert matching.similarity("Paprika rot 5kg", "Ớt chuông / Paprika") > matching.similarity("Paprika rot 5kg", carrot)
+    assert matching.similarity("1L BERIEF BIO HAFER OHNE ZUCKE", "Sữa yến mạch / Berief Bio Haferdrink 1l") >= matching.MATCH_THRESHOLD
+    assert matching.similarity("Sesam weiß 1kg", "Mè trắng / Sesam") >= matching.MATCH_THRESHOLD
+
+
+def test_packaging_names_stay_nonfood():
+    from app.areas import guess_area, looks_like_nonfood
+
+    for name in ("Menü-Box 3-geteilt 200 Stk", "Alu-Folie 45cm 150m", "Gefrier-Beutel 3l 100 Stk", "Müll-Sack 120l",
+                 "Bon-Rolle 80mm 20 Stk", "Snack Box 500 Stk", "Dessert Schale 200ml"):
+        assert looks_like_nonfood(name) and guess_area(name, "", 19) == "kitchen", name
+    for name in ("Kartoffeln 25kg Sack", "Thai Jasminreis 18kg Sack", "500g REISPAPIER 22CM", "Reis im Kochbeutel 4x125g"):
+        assert not looks_like_nonfood(name), name

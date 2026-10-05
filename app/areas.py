@@ -61,9 +61,11 @@ NONFOOD_STEMS = (
     "papier", "rolle", "propan", "gasflasche", "kerze", "schwamm", "desinfekt", "seife", "teller", "becher", "strohhalm", "trinkhalm",
 )
 NONFOOD_TOKENS = {"hop", "tui", "gang", "khan", "giay", "ong", "hut"}
-# Từ chỉ cách đóng gói ("18kg Sack", "Beutel") không làm hàng thành phi thực phẩm; và món ăn có chữ giống đồ dùng.
-PACK_WORDS = {"sack", "beutel", "box", "rolle", "rollen", "schale", "tute", "dose", "karton", "folie"}
-FOOD_COMPOUNDS = ("reispapier", "fruhlingsroll", "fruehlingsroll", "sommerroll", "eierroll", "papierreis", "frischkase")
+# "18kg Sack", "25kg Sack": chữ Sack chỉ là bao bì của hàng cân (gạo, khoai), không phải túi rác.
+PACK_WORDS = {"sack", "sacke"}
+WEIGHT_IN_NAME = re.compile(r"\d\s*k?g\b")
+# Món ăn có chữ giống đồ dùng: bánh tráng (Reispapier), chả giò (Frühlingsrollen), gạo túi nấu (Kochbeutel).
+FOOD_COMPOUNDS = ("reispapier", "fruhlingsroll", "fruehlingsroll", "sommerroll", "eierroll", "kochbeutel")
 # Đồ dùng cho quầy cà phê / bar (nhóm METRO là Mopro, Nährmittel, Nonfood nhưng thuộc quầy).
 BAR_SERVICE_STEMS = ("kaffeesahne", "kaffeemilch", "zuckerstick", "kaffeerahm", "ausgiesser", "ausgieser", "cocktailshaker", "barsieb")
 # Danh mục cũ (trước khi có khu vực) được xem là đồ uống.
@@ -110,11 +112,14 @@ def looks_like_drink(name: str) -> bool:
 
 
 def looks_like_nonfood(name: str) -> bool:
-    tokens = _tokens(name)
+    plain = _plain(name)
+    tokens = plain.split()
     if any(food in t for t in tokens for food in FOOD_COMPOUNDS):
         return False
+    weighed = bool(WEIGHT_IN_NAME.search(plain))
     return any(
-        t in NONFOOD_TOKENS or (t not in PACK_WORDS and any(stem in t for stem in NONFOOD_STEMS)) for t in tokens
+        t in NONFOOD_TOKENS or (not (weighed and t in PACK_WORDS) and any(stem in t for stem in NONFOOD_STEMS))
+        for t in tokens
     )
 
 
