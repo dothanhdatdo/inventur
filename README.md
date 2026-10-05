@@ -12,7 +12,7 @@ Viết bằng **Python** (FastAPI + SQLAlchemy + Jinja2). Cùng một mã nguồ
 | Email cảnh báo | Qua dịch vụ miễn phí FormSubmit.co (lần đầu phải bấm link kích hoạt trong email) | SMTP (vd. Gmail + App Password) |
 | AI đọc hoá đơn | Nhập API key Gemini (miễn phí), Claude hoặc OpenAI ở trang **Cài đặt** (key chỉ lưu trên trình duyệt đó) | Biến môi trường `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` |
 
-Chưa có API key thì app chạy ở **chế độ demo**: ảnh hoá đơn vẫn được lưu, dữ liệu bóc tách là một hoá đơn mẫu, đủ để thử toàn bộ quy trình. Có sẵn [ảnh hoá đơn mẫu](app/static/sample-invoice.png) để thử.
+**Không cần API key** cho hoá đơn PDF gửi qua email của METRO: app đọc chữ trong PDF ngay trên máy (thư viện `pypdf`), miễn phí và chính xác từng dòng. Ảnh chụp hoá đơn giấy thì cần AI: lấy key Gemini miễn phí (xem bên dưới); chưa có key thì ảnh vẫn được lưu kèm phiếu để gõ tay các dòng. Muốn thử quy trình bằng dữ liệu giả: chọn **Demo** ở Cài đặt rồi tải [ảnh hoá đơn mẫu](app/static/sample-invoice.png).
 
 ## Tính năng
 
@@ -25,7 +25,8 @@ Chưa có API key thì app chạy ở **chế độ demo**: ảnh hoá đơn v�
   - Dữ liệu từ bản cũ (đã lưu trong trình duyệt) được **tự chuyển sang dạng mới** khi mở app: đồ uống sang Quầy, còn lại sang Bếp.
 - **Cần đặt hàng**: gợi ý theo ngưỡng tối thiểu (gấp) và **mức tồn chuẩn** (Par-Bestand), làm tròn theo thùng/két/bao, gom theo nhà cung cấp, kèm **tin nhắn đặt hàng tiếng Đức** để copy gửi đi.
 - **Nhập hàng**
-  - 📷 *Quét hoá đơn*: chụp ảnh/tải JPG, PNG, PDF → AI (Google Gemini miễn phí, Claude hoặc GPT-4o) bóc tách nhà cung cấp, số và ngày hoá đơn, mặt hàng, số lượng, đơn giá, thành tiền, VAT.
+  - 🧾 *Hoá đơn PDF METRO* (từ email): đọc không cần AI – từng dòng hàng, số cái/thùng, giá NET sau Mengenrabatt, hạn dùng (MHD), nhóm hàng (Bier/AfG, Wein, Fleisch, Nonfood…) để đoán khu Bếp/Quầy; tiền cọc vỏ (Leergut) không tính vào kho. Quét lại hoá đơn đã nhập thì các dòng trùng được bỏ sẵn.
+  - 📷 *Ảnh chụp hoá đơn*: chụp bằng điện thoại hoặc tải JPG, PNG, PDF khác → AI (Google Gemini miễn phí, Claude hoặc GPT-4o) bóc tách nhà cung cấp, số và ngày hoá đơn, mặt hàng, số lượng, đơn giá, thành tiền, VAT.
   - Màn hình *đối soát*: ảnh hoá đơn bên trái, dữ liệu bên phải để sửa, gắn nguyên liệu, quy đổi đơn vị (vd. 1 bao = 18 kg, 1 thùng = 24 lon), nhập hạn sử dụng, rồi bấm **Nhập kho**.
   - Tự khớp tên hàng trên hoá đơn với nguyên liệu trong kho (hiểu cả từ ghép tiếng Đức) và **ghi nhớ mapping** theo từng nhà cung cấp cho lần quét sau.
   - ✍️ *Nhập thủ công*: tạo phiếu nhập gõ tay, hoặc nhập nhanh từng nguyên liệu.
@@ -111,6 +112,7 @@ pytest
 │   ├── services/
 │   │   ├── stock.py      # nhập/xuất kho theo lô, kiểm kê, bán món, gợi ý đặt hàng
 │   │   ├── ocr.py        # AI đọc hoá đơn (Gemini / Claude / GPT-4o / demo)
+│   │   ├── pdf_invoice.py # đọc hoá đơn PDF METRO không cần AI
 │   │   ├── matching.py   # khớp tên hàng trên HĐ với nguyên liệu, quy đổi đơn vị
 │   │   ├── invoices.py   # quy trình hoá đơn: nháp → duyệt → nhập kho
 │   │   └── alerts.py     # cảnh báo sắp hết + gửi email (theo khu)
