@@ -85,7 +85,7 @@ def test_gemini_errors_are_readable(monkeypatch, status, body, needle):
 
 def test_auto_provider_picks_gemini_when_only_gemini_key():
     assert ocr.active_provider(_gemini_settings(provider="auto")) == "gemini"
-    assert ocr.active_provider(_gemini_settings(provider="auto", gemini_key="")) == "demo"
+    assert ocr.active_provider(_gemini_settings(provider="auto", gemini_key="")) == "local"  # không còn dữ liệu giả
     assert config.GEMINI_MODEL == "gemini-flash-latest"
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -89,7 +90,7 @@ templates.env.filters["vdate"] = _date
 templates.env.globals["movement_labels"] = MOVEMENT_LABELS
 templates.env.globals["ocr_labels"] = {
     "anthropic": "Claude", "openai": "GPT-4o", "gemini": "Gemini", "demo": "Demo", "manual": "Thủ công",
-    "email": "Từ email",
+    "email": "Từ email", "pdf": "Đọc PDF", "local": "Chưa có AI",
 }
 templates.env.globals["today"] = date.today
 templates.env.globals["AREAS"] = areas.AREAS
@@ -622,13 +623,26 @@ async def invoice_scan(request: Request, file: UploadFile = File(None), db: Sess
     except ocr.OcrError as exc:
         # Vẫn giữ ảnh, tạo HĐ trống để nhập tay.
         parsed = ocr.ParsedInvoice(source="manual")
-        flash(request, f"Không đọc được hoá đơn bằng AI: {str(exc).rstrip('.')}. Bạn có thể nhập tay các dòng.", "error")
+        flash(request, f"Chưa đọc tự động được: {str(exc).rstrip('.')}. File đã lưu kèm phiếu này – bạn có thể gõ tay các dòng.", "error")
     invoice = invoice_service.create_draft(db, parsed, filename, media_type)
     db.commit()
+    duplicates = [line for line in invoice.lines if line.match_score < 0]
+    previous = invoice_service.duplicate_of(db, invoice)
     if parsed.source == "demo":
-        flash(request, "Chế độ DEMO: chưa cấu hình API key nên đang hiển thị dữ liệu hoá đơn mẫu.", "warn")
+        flash(request, "Chế độ DEMO: đang hiển thị dữ liệu hoá đơn mẫu (chọn AI thật ở Cài đặt).", "warn")
+    elif parsed.source == "pdf":
+        matched = sum(1 for line in invoice.lines if line.ingredient_id)
+        msg = (f"Đã đọc {len(invoice.lines)} dòng từ PDF (không dùng AI), {matched} dòng tự khớp với kho."
+               + (f" Tiền cọc vỏ {_money(parsed.deposit)} không nhập kho." if parsed.deposit else "")
+               + " Kiểm tra rồi bấm Nhập kho.")
+        flash(request, msg)
     elif parsed.source != "manual":
         flash(request, f"AI đã đọc {len(invoice.lines)} dòng. Hãy kiểm tra trước khi nhập kho.")
+    if previous is not None:
+        request.session["alert_flash"] = (
+            f"Hoá đơn số {invoice.invoice_number} đã được nhập kho trước đó (#{previous.id}). "
+            f"{len(duplicates)} dòng trùng đã được bỏ gắn để không nhập kho hai lần."
+        )
     return redirect(f"/invoices/{invoice.id}")
 
 
@@ -725,19 +739,44 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
     return created
 
 
+# Mã đóng gói trên hoá đơn METRO -> tên đơn vị mua.
+PACK_CODES = {
+    "KA": "két", "KI": "két", "SC": "két", "KT": "thùng", "SP": "lốc", "PG": "gói", "DS": "lon", "TG": "hộp",
+    "BT": "túi", "EI": "xô", "KS": "can", "FS": "bao", "ST": "cái",
+}
+
+
 def _create_ingredient_from_line(db: Session, line: InvoiceLine) -> Ingredient:
     name = line.raw_name.strip()[:200]
     existing = db.scalars(select(Ingredient).where(Ingredient.name == name)).first()
     if existing:
         existing.active = 1
         return existing
-    unit = matching.UNIT_ALIASES.get(matching.normalize(line.unit_raw), "") or "cái"
-    # Đoán khu: tên giống đồ uống hoặc VAT 19% -> quầy; còn lại -> bếp. Sửa được sau ở trang nguyên liệu.
-    area = areas.guess_area(name, "", line.vat_rate or None)
-    ing = Ingredient(name=name, category="Mới từ hoá đơn", unit=unit, area=area)
+    weighed = (line.unit_raw or "").strip().upper() == "KG"
+    unit = "kg" if weighed else (matching.UNIT_ALIASES.get(matching.normalize(line.unit_raw), "") or "cái")
+    category = line.category_hint or "Mới từ hoá đơn"
+    # Đoán khu: nhóm hàng trên hoá đơn, tên giống đồ uống hoặc VAT 19% -> quầy; còn lại -> bếp.
+    area = areas.guess_area(name, category, line.vat_rate or None)
+    pieces = line.pack_factor if line.pack_factor and line.pack_factor > 0 else 1.0  # số cái trong 1 đơn vị HĐ
+    nonfood = areas.looks_like_nonfood(name) or any(w in areas._plain(category) for w in (" nonfood ", " drogerie "))
+    size = matching.SIZE_IN_NAME.search(name)
+    if unit == "cái" and area == areas.BAR and (matching.BOTTLE_SIZE.search(name) or re.search(r"\d\s*(?:l|ml)\b", name, re.I)):
+        unit = "chai"
+    elif unit == "cái" and area == areas.KITCHEN and not nonfood and size and not matching.MULTI_SIZE.search(name):
+        # Đồ bếp ghi khối lượng/dung tích trong tên ("1kg ...", "800G ...", "10l DẦU") -> kho tính kg/l để dùng cho định lượng.
+        unit = "kg" if size.group(2).lower() in ("kg", "g") else "l"
+        line.pack_factor = round(pieces * matching._convert(matching.to_number(size.group(1)), size.group(2).lower(), unit), 6)
+        weighed = True
+    ing = Ingredient(name=name, category=category, unit=unit, area=area)
+    if not weighed and line.pack_factor and line.pack_factor > 1 and unit in ("cái", "chai"):
+        # Hoá đơn cho biết số cái mỗi kiện (vd. METRO: 12 chai/thùng) -> kho tính theo cái/chai.
+        code = (line.unit_raw or "").strip().upper()
+        ing.pack_unit = PACK_CODES.get(code, code.lower() or "kiện")
+        ing.pack_size = line.pack_factor
+    else:
+        line.pack_factor = line.pack_factor if weighed else 1.0
     db.add(ing)
     db.flush()
-    line.pack_factor = 1.0
     return ing
 
 

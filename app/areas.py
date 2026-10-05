@@ -47,6 +47,7 @@ FOOD_TOKENS = {
 KITCHEN_CATEGORY_WORDS = (
     "thit", "hai san", "rau", "gia vi", "sot", "hang kho", "dong lanh", "bao bi", "fleisch", "fisch", "gemuse",
     "gewurz", "sosse", "sauce", "trockenware", "tiefkuhl", "verpackung", "kuche", "bep",
+    "nonfood", "dung cu", "drogerie", "ve sinh", "mopro", "do mat",
 )
 
 # Đồ hộp/đồ ngâm: "Thunfisch in Wasser", "Ananas in Saft", "Mais in Salzwasser" là đồ bếp.

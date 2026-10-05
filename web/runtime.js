@@ -7,7 +7,7 @@ const params = new URLSearchParams(location.search);
 const INDEX_URL = params.get('pyodide') || `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 // Các gói có sẵn trong Pyodide (phụ thuộc được tải tự động).
 const PACKAGES = ['fastapi', 'sqlalchemy', 'jinja2', 'micropip'];
-const PYPI_PACKAGES = ['python-multipart', 'itsdangerous'];
+const PYPI_PACKAGES = ['python-multipart', 'itsdangerous', 'pypdf'];
 const APP_ROOT = new URL('../', import.meta.url); // thư mục inventur/
 const COOKIE_KEY = 'inventur.cookies';
 

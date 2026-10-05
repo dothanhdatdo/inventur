@@ -59,7 +59,7 @@
     <div class="form-grid">
       <div><label for="o-prov">Nhà cung cấp AI</label>
         <select id="o-prov" name="ocr_provider">
-          {% for v, l in [('auto', 'Tự động (key nào có thì dùng)'), ('anthropic', 'Claude (Anthropic)'), ('gemini', 'Google Gemini (có gói miễn phí)'), ('openai', 'GPT-4o (OpenAI)'), ('demo', 'Demo – dữ liệu mẫu')] %}
+          {% for v, l in [('auto', 'Tự động (PDF METRO đọc không cần AI; ảnh dùng key nào có)'), ('anthropic', 'Claude (Anthropic)'), ('gemini', 'Google Gemini (có gói miễn phí)'), ('openai', 'GPT-4o (OpenAI)'), ('demo', 'Demo – dữ liệu mẫu')] %}
           <option value="{{ v }}" {{ 'selected' if ocr_settings.provider == v }}>{{ l }}</option>{% endfor %}
         </select></div>
       <div><label for="o-model">Model Claude</label><input id="o-model" name="ocr_anthropic_model" value="{{ ocr_settings.anthropic_model }}"></div>

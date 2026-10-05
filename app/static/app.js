@@ -31,6 +31,17 @@ function initDropzone() {
     }
   };
   input.addEventListener('change', show);
+  // Nút "Chụp ảnh": mở camera (input riêng có capture) rồi chuyển ảnh sang ô file chính.
+  const camera = document.getElementById('cameraInput');
+  if (camera) camera.addEventListener('change', () => {
+    if (!camera.files.length) return;
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(camera.files[0]);
+      input.files = dt.files;
+      show();
+    } catch (err) { console.warn(err); }
+  });
   ['dragenter', 'dragover'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.remove('drag'); }));
   zone.addEventListener('drop', (ev) => { input.files = ev.dataTransfer.files; show(); });
@@ -76,7 +87,7 @@ function bindLine(el) {
   };
   const describe = () => {
     const calc = f('.calc');
-    el.classList.toggle('unmatched', !sel.value);
+    el.classList.toggle('unmatched', !sel.value && !f('.del-box').checked);
     el.classList.toggle('removed', f('.del-box').checked);
     const ing = window.INGREDIENTS[sel.value];
     if (sel.value === 'new') { calc.textContent = 'Sẽ tạo nguyên liệu mới với tên trên hoá đơn.'; return; }

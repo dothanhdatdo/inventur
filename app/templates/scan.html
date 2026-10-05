@@ -4,22 +4,34 @@
 {% block content %}
 <div class="choice-grid">
   <form class="card" method="post" action="/invoices/scan" enctype="multipart/form-data" id="scanForm">
-    <div class="card-head"><h2>📷 Quét hoá đơn bằng AI</h2>
-      {% if ocr_provider == 'demo' %}<span class="pill pill-warn">Chế độ demo</span>{% elif not ocr_ready %}<span class="pill pill-danger">Thiếu API key</span>{% else %}<span class="pill pill-ok">AI sẵn sàng</span>{% endif %}</div>
+    <div class="card-head"><h2>🧾 Quét hoá đơn</h2>
+      {% if ocr_provider == 'demo' %}<span class="pill pill-warn">Chế độ demo</span>
+      {% elif ocr_ready %}<span class="pill pill-ok">AI sẵn sàng · {{ ocr_labels.get(ocr_provider, ocr_provider) }}</span>
+      {% elif ocr_provider != 'local' %}<span class="pill pill-ok">PDF: đọc được</span> <span class="pill pill-warn">Thiếu API key {{ ocr_labels.get(ocr_provider, ocr_provider) }}</span>
+      {% else %}<span class="pill pill-ok">PDF: đọc được</span> <span class="pill pill-warn">Ảnh: cần key AI</span>{% endif %}</div>
     <label class="dropzone" id="dropzone">
-      <input type="file" name="file" id="fileInput" accept="image/*,application/pdf" capture="environment" required>
-      <div class="big">🧾</div>
-      <strong>Chụp ảnh hoặc chọn file hoá đơn</strong>
-      <div class="muted small">JPG, PNG, WEBP hoặc PDF · tối đa 15 MB · kéo thả vào đây</div>
+      <input type="file" name="file" id="fileInput" accept="image/*,application/pdf,.pdf" required>
+      <div class="big">📄</div>
+      <strong>Chọn file hoá đơn (PDF từ email hoặc ảnh)</strong>
+      <div class="muted small">PDF, JPG, PNG, WEBP · tối đa 15 MB · kéo thả vào đây</div>
       <div class="small" id="fileName"></div>
       <img class="preview-img" id="previewImg" alt="Xem trước hoá đơn">
     </label>
-    <div class="form-actions"><button class="btn btn-primary btn-lg" type="submit" id="scanBtn">Đọc hoá đơn</button></div>
-    {% if ocr_provider != 'demo' and not ocr_ready %}
-    <p class="hint">Đã chọn {{ ocr_labels.get(ocr_provider, ocr_provider) }} nhưng chưa nhập API key: hãy dán key ở <a href="/settings">Cài đặt</a>. Lấy key Gemini miễn phí tại aistudio.google.com/apikey.</p>
-    {% elif ocr_provider == 'demo' %}
-    <p class="hint">Chưa có API key AI ({% if browser_mode %}nhập ở <a href="/settings">Cài đặt</a>{% else %}<code>GEMINI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> hoặc trang <a href="/settings">Cài đặt</a>{% endif %}): ảnh vẫn được lưu nhưng dữ liệu là hoá đơn mẫu, để bạn thử quy trình duyệt. <strong>Muốn đọc hoá đơn thật miễn phí: dùng Google Gemini</strong> (hướng dẫn ở trang Cài đặt). Có thể dùng <a href="/static/sample-invoice.png" download>ảnh hoá đơn mẫu</a>.</p>
-    {% endif %}
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+    <div class="form-actions">
+      <button class="btn btn-lg" type="button" onclick="document.getElementById('cameraInput').click()">📷 Chụp ảnh</button>
+      <button class="btn btn-primary btn-lg" type="submit" id="scanBtn">Đọc hoá đơn</button>
+    </div>
+    <ul class="hint" style="padding-left:18px;margin:12px 0 0">
+      <li><strong>Hoá đơn PDF gửi qua email (METRO)</strong>: tải file PDF trong email về rồi chọn ở đây – app tự đọc từng dòng, giá sau giảm, hạn dùng. Không cần AI, miễn phí, dữ liệu không rời khỏi máy.</li>
+      {% if ocr_provider == 'demo' %}
+      <li><strong>Đang bật chế độ demo</strong>: ảnh chụp sẽ cho ra hoá đơn mẫu. Đổi sang “Tự động” hoặc Google Gemini ở <a href="/settings">Cài đặt</a> để đọc thật{% if not browser_mode %} (hoặc đặt <code>GEMINI_API_KEY</code>){% endif %}.</li>
+      {% elif ocr_ready %}
+      <li><strong>Ảnh chụp / PDF khác</strong>: đọc bằng {{ ocr_labels.get(ocr_provider, ocr_provider) }}.</li>
+      {% else %}
+      <li><strong>Ảnh chụp hoá đơn giấy</strong> cần AI đọc chữ: lấy key <strong>Google Gemini miễn phí</strong> tại <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> (đăng nhập Google → Create API key) rồi dán vào <a href="/settings">Cài đặt → AI đọc hoá đơn</a>.</li>
+      {% endif %}
+    </ul>
   </form>
 
   <div class="card" id="manual">
@@ -31,7 +43,7 @@
     <h2 style="margin-bottom:8px">Quy trình</h2>
     <ol class="steps">
       <li>Chụp / tải ảnh hoá đơn hoặc tạo phiếu thủ công</li>
-      <li>AI bóc tách nhà cung cấp, ngày, mặt hàng, số lượng, giá, VAT</li>
+      <li>App đọc nhà cung cấp, ngày, mặt hàng, số lượng, giá, VAT (PDF điện tử đọc ngay; ảnh chụp cần AI)</li>
       <li>Tự khớp tên hàng với nguyên liệu trong kho (nhớ cho lần sau)</li>
       <li>Bạn kiểm tra, sửa và bấm <strong>Nhập kho</strong></li>
       <li>Tồn kho, giá nhập và cảnh báo được cập nhật</li>

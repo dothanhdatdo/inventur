@@ -45,7 +45,7 @@
     </nav>
     <div class="sidebar-foot">
       <span class="pill {{ 'pill-ok' if ocr_ready else 'pill-warn' }}">
-        OCR: {{ ocr_labels.get(ocr_provider, ocr_provider) }}
+        {% if ocr_provider == 'local' %}Quét: PDF{% else %}OCR: {{ ocr_labels.get(ocr_provider, ocr_provider) }}{% endif %}
       </span>
       {% if auth_enabled %}<a href="/logout" class="muted">Đăng xuất</a>{% endif %}
     </div>

@@ -1,5 +1,5 @@
 {
-  "version": "8f10a2ebf011",
+  "version": "b3ef0b060c93",
   "files": [
     "app/__init__.py",
     "app/areas.py",
@@ -15,6 +15,7 @@
     "app/services/invoices.py",
     "app/services/matching.py",
     "app/services/ocr.py",
+    "app/services/pdf_invoice.py",
     "app/services/stock.py",
     "app/templates/_ingredient_fields.html",
     "app/templates/_invoice_line.html",

@@ -46,24 +46,67 @@ def create_draft(session: Session, parsed: ParsedInvoice, file_path: str, file_t
     )
     session.add(invoice)
     ingredients = list(session.scalars(select(Ingredient).where(Ingredient.active == 1)).all())
+    already = previous_lines(session, parsed.invoice_number)
     for pos, line in enumerate(parsed.lines):
-        m = matching.match_line(session, invoice.supplier_id, line.name, line.unit, ingredients)
-        invoice.lines.append(
-            InvoiceLine(
-                position=pos,
-                raw_name=line.name,
-                quantity=line.quantity,
-                unit_raw=line.unit,
-                unit_price=line.unit_price,
-                line_total=line.total,
-                vat_rate=line.vat_rate,
-                ingredient_id=m.ingredient.id if m.ingredient else None,
-                pack_factor=m.pack_factor,
-                match_score=m.score,
-            )
+        m = matching.match_line(
+            session, invoice.supplier_id, line.name, line.unit, ingredients, getattr(line, "units_per_pack", None)
         )
+        new_line = InvoiceLine(
+            position=pos,
+            raw_name=line.name,
+            quantity=line.quantity,
+            unit_raw=line.unit,
+            unit_price=line.unit_price,
+            line_total=line.total,
+            vat_rate=line.vat_rate,
+            ingredient_id=m.ingredient.id if m.ingredient else None,
+            pack_factor=m.pack_factor,
+            match_score=m.score,
+            expiry_date=getattr(line, "expiry", None),
+            category_hint=getattr(line, "category", "") or "",
+        )
+        key = (matching.normalize(line.name), round(line.quantity, 3))
+        if already.get(key, 0) > 0:
+            # Dòng này đã được nhập kho trong hoá đơn cùng số trước đó -> bỏ gắn để không nhập trùng.
+            already[key] -= 1
+            new_line.ingredient_id = None
+            new_line.match_score = -1.0
+        invoice.lines.append(new_line)
+    fresh = [line for line in invoice.lines if line.match_score >= 0]
+    if len(fresh) < len(invoice.lines):
+        # Phần đã nhập rồi không tính lại: phiếu nháp chỉ còn các dòng mới (dòng trùng được đánh dấu "Bỏ").
+        invoice.subtotal = round(sum(line.line_total for line in fresh), 2)
+        invoice.vat = round(sum(line.line_total * (line.vat_rate or 0) / 100 for line in fresh), 2)
+        invoice.total = round(invoice.subtotal + invoice.vat, 2)
     session.flush()
     return invoice
+
+
+def previous_lines(session: Session, invoice_number: str) -> dict[tuple[str, float], int]:
+    """Các dòng đã nhập kho của (những) hoá đơn cùng số – để phát hiện quét trùng."""
+    if not (invoice_number or "").strip():
+        return {}
+    counts: dict[tuple[str, float], int] = {}
+    rows = session.execute(
+        select(InvoiceLine.raw_name, InvoiceLine.quantity)
+        .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+        .where(Invoice.invoice_number == invoice_number.strip(), Invoice.status == "confirmed",
+               InvoiceLine.ingredient_id.is_not(None))
+    ).all()
+    for name, qty in rows:
+        key = (matching.normalize(name), round(qty, 3))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def duplicate_of(session: Session, invoice: Invoice) -> Invoice | None:
+    if not (invoice.invoice_number or "").strip():
+        return None
+    return session.scalars(
+        select(Invoice).where(
+            Invoice.invoice_number == invoice.invoice_number.strip(), Invoice.status == "confirmed", Invoice.id != invoice.id
+        )
+    ).first()
 
 
 class ConfirmError(Exception):
@@ -86,9 +129,10 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
     when = datetime.combine(invoice.invoice_date, time(9, 0)) if invoice.invoice_date else datetime.now()
     ref = f"HĐ #{invoice.id}" + (f" ({invoice.invoice_number})" if invoice.invoice_number else "")
     imported = 0
+    unlinked: list[str] = []
     for line in invoice.lines:
         if not line.ingredient_id:
-            notes.append(f"Bỏ qua (chưa gắn nguyên liệu): {line.raw_name}")
+            unlinked.append(line.raw_name)
             continue
         base_qty = line.quantity * (line.pack_factor or 1.0)
         if base_qty <= 0:
@@ -117,6 +161,9 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
     invoice.status = "confirmed"
     invoice.confirmed_at = datetime.now()
     notes.insert(0, f"Đã nhập kho {imported} mặt hàng.")
+    if unlinked:
+        shown = ", ".join(unlinked[:5]) + (f" … (+{len(unlinked) - 5})" if len(unlinked) > 5 else "")
+        notes.insert(1, f"Bỏ qua {len(unlinked)} dòng chưa gắn nguyên liệu: {shown}")
     return notes
 
 
@@ -129,6 +176,8 @@ def area_totals(invoice: Invoice) -> dict[str, float]:
     """Chia tiền hàng của hoá đơn theo khu (bếp / quầy / chưa gắn)."""
     totals: dict[str, float] = {}
     for line in invoice.lines:
+        if not line.ingredient and (line.match_score or 0) < 0:
+            continue  # dòng đã nhập ở hoá đơn trước (quét trùng)
         key = line.ingredient.area if line.ingredient else ""
         totals[key] = round(totals.get(key, 0.0) + (line.line_total or 0.0), 2)
     return totals

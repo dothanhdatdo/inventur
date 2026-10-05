@@ -13,7 +13,7 @@
       {% set t = area_totals[inv.id] %}
       <td class="num small {{ 'muted' if area == 'bar' }}">{{ t.get('kitchen', 0)|money if t.get('kitchen') else '–' }}</td>
       <td class="num small {{ 'muted' if area == 'kitchen' }}">{{ t.get('bar', 0)|money if t.get('bar') else '–' }}</td>
-      <td><span class="pill pill-muted">{{ ('AI · ' if inv.source not in ('demo', 'manual', 'email') else '') ~ ocr_labels.get(inv.source, inv.source) }}</span>{% if inv.file_path %} 📎{% endif %}</td>
+      <td><span class="pill pill-muted">{{ ('AI · ' if inv.source not in ('demo', 'manual', 'email', 'pdf') else '') ~ ocr_labels.get(inv.source, inv.source) }}</span>{% if inv.file_path %} 📎{% endif %}</td>
       <td>{% if inv.status == 'confirmed' %}<span class="pill pill-ok">Đã nhập kho</span>{% else %}<a class="pill pill-warn" href="/invoices/{{ inv.id }}">Chờ duyệt</a>{% endif %}</td></tr>
     {% else %}<tr><td colspan="10" class="empty">Chưa có hoá đơn. <a href="/invoices/scan">Nhập hàng ngay</a>.</td></tr>{% endfor %}</tbody>
   </table></div>

@@ -17,7 +17,7 @@
       <img src="/invoices/{{ invoice.id }}/file" alt="Ảnh hoá đơn" onclick="this.classList.toggle('zoomed')">
     {% endif %}
     </div>
-    <div class="small muted" style="margin-top:6px">Bấm vào ảnh để phóng to · <a href="/invoices/{{ invoice.id }}/file" target="_blank">Mở file gốc</a></div>
+    <div class="small muted" style="margin-top:6px">{% if invoice.file_type == 'application/pdf' %}Không thấy PDF (trên điện thoại)? Bấm{% else %}Bấm vào ảnh để phóng to ·{% endif %} <a href="/invoices/{{ invoice.id }}/file" target="_blank">Mở file gốc</a></div>
   </div>
   {% endif %}
 
@@ -25,7 +25,7 @@
     <fieldset {{ 'disabled' if locked }} style="border:0;padding:0;margin:0;min-width:0">
     <div class="card">
       <div class="card-head"><h2>Thông tin hoá đơn</h2>
-        <span class="pill pill-muted">{{ 'Nhập thủ công' if invoice.source == 'manual' else ('Dữ liệu demo' if invoice.source == 'demo' else ('Nhập từ email hoá đơn' if invoice.source == 'email' else 'Đọc bởi ' ~ ocr_labels.get(invoice.source, invoice.source))) }}</span></div>
+        <span class="pill pill-muted">{{ 'Nhập thủ công' if invoice.source == 'manual' else ('Dữ liệu demo' if invoice.source == 'demo' else ('Nhập từ email hoá đơn' if invoice.source == 'email' else ('Đọc chữ trong PDF (không AI)' if invoice.source == 'pdf' else 'Đọc bởi ' ~ ocr_labels.get(invoice.source, invoice.source)))) }}</span></div>
       <div class="form-grid">
         <div><label for="i-sup">Nhà cung cấp</label>
           <select id="i-sup" name="supplier_id" onchange="document.getElementById('newSup').style.display = this.value ? 'none' : ''">

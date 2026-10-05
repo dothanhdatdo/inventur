@@ -62,6 +62,10 @@ class ParsedLine:
     unit_price: float
     total: float
     vat_rate: float
+    units_per_pack: float | None = None  # số đơn vị lẻ trong 1 đơn vị trên HĐ (vd. 24 chai / két), nếu biết
+    article_no: str = ""
+    expiry: date | None = None
+    category: str = ""  # nhóm hàng gợi ý (vd. theo nhóm trên hoá đơn METRO) -> dùng khi tạo nguyên liệu mới
 
 
 @dataclass
@@ -75,6 +79,7 @@ class ParsedInvoice:
     lines: list[ParsedLine] = field(default_factory=list)
     source: str = "demo"
     raw: dict = field(default_factory=dict)
+    deposit: float = 0.0  # tiền cọc vỏ (Leergut/Pfand) – không nhập kho
 
 
 def get_settings(session=None) -> dict:
@@ -106,6 +111,7 @@ def provider_ready(settings: dict | None = None) -> bool:
 
 
 def active_provider(settings: dict | None = None) -> str:
+    """AI dùng để đọc ẢNH hoá đơn. "local" = chưa có key: chỉ đọc được PDF điện tử (không dùng AI)."""
     settings = settings or get_settings()
     provider = settings["provider"]
     if provider == "auto":
@@ -115,13 +121,34 @@ def active_provider(settings: dict | None = None) -> str:
             return "openai"
         if settings["gemini_key"]:
             return "gemini"
-        return "demo"
+        return "local"
     return provider
+
+
+NEED_KEY_MESSAGE = (
+    "Ảnh chụp hoá đơn cần AI để đọc chữ. Lấy key Google Gemini miễn phí tại aistudio.google.com/apikey "
+    "rồi dán vào Cài đặt → AI đọc hoá đơn. Hoá đơn PDF từ email (như METRO) thì đọc được ngay, không cần key"
+)
 
 
 async def extract_invoice(content: bytes, media_type: str, settings: dict | None = None) -> ParsedInvoice:
     settings = settings or get_settings()
+    if media_type == "application/pdf":
+        # PDF điện tử (vd. METRO gửi qua email): đọc chữ trực tiếp – chính xác, miễn phí, không gửi đi đâu.
+        from .pdf_invoice import parse_pdf
+
+        parsed = parse_pdf(content)
+        if parsed is not None:
+            return parsed
     provider = active_provider(settings)
+    if provider == "local":
+        if media_type == "application/pdf":
+            raise OcrError(
+                "Chưa đọc được PDF này khi không có AI (hiện chỉ hỗ trợ sẵn hoá đơn PDF của METRO, "
+                "hoặc PDF là bản scan không có chữ). Muốn đọc loại hoá đơn này: lấy key Google Gemini miễn phí "
+                "tại aistudio.google.com/apikey rồi dán vào Cài đặt → AI đọc hoá đơn"
+            )
+        raise OcrError(NEED_KEY_MESSAGE)
     if provider == "anthropic":
         data = await _call_anthropic(content, media_type, settings)
     elif provider == "openai":

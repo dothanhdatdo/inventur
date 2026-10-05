@@ -1,14 +1,16 @@
-<div class="line {{ 'unmatched' if line is not none and not line.ingredient_id }}" data-row="{{ row }}">
+{% set dup = line is not none and line.match_score < 0 %}
+<div class="line {{ 'unmatched' if line is not none and not line.ingredient_id and not dup }} {{ 'removed' if dup }}" data-row="{{ row }}">
   <input type="hidden" name="row" value="{{ row }}">
   <input type="hidden" name="line_id_{{ row }}" value="{{ line.id if line else '' }}">
   <div class="line-top">
     <div class="raw"><label>Tên trên hoá đơn</label>
       <input name="raw_name_{{ row }}" value="{{ line.raw_name if line else '' }}" required placeholder="Tên mặt hàng"></div>
+    {% if dup %}<span class="pill pill-danger" style="margin-top:28px" title="Dòng này đã được nhập kho ở hoá đơn cùng số trước đó">Đã nhập rồi</span>{% endif %}
     {% if line and line.ingredient_id %}
       {% if line.match_score >= 0.999 %}<span class="pill pill-ok" style="margin-top:28px" title="Đã khớp theo lần nhập trước">Đã nhớ</span>
       {% elif line.match_score > 0 %}<span class="pill pill-warn" style="margin-top:28px" title="Gợi ý tự động">? {{ (line.match_score * 100)|round|int }}%</span>{% endif %}
     {% endif %}
-    <label class="check" style="margin-top:30px" title="Bỏ dòng này"><input type="checkbox" name="delete_{{ row }}" value="1" class="del-box"> Bỏ</label>
+    <label class="check" style="margin-top:30px" title="Bỏ dòng này"><input type="checkbox" name="delete_{{ row }}" value="1" class="del-box" {{ 'checked' if dup }}> Bỏ</label>
   </div>
   <div class="line-grid">
     <div><label>Nguyên liệu trong kho</label>
@@ -26,7 +28,7 @@
   </div>
   <div class="line-grid2">
     <div><label>Quy đổi: 1 đơn vị HĐ = ? đơn vị kho</label><input name="pack_factor_{{ row }}" inputmode="decimal" class="f-factor" value="{{ line.pack_factor|qty if line else '1' }}"></div>
-    <div><label>Hạn sử dụng</label><input type="date" name="expiry_date_{{ row }}" value="{{ line.expiry_date.isoformat() if line and line.expiry_date else '' }}"></div>
+    <div><label>Hạn sử dụng{% if line and line.category_hint %} <span class="muted">· {{ line.category_hint }}</span>{% endif %}</label><input type="date" name="expiry_date_{{ row }}" value="{{ line.expiry_date.isoformat() if line and line.expiry_date else '' }}"></div>
     <div><label>VAT %</label><input value="{{ line.vat_rate|qty if line else '' }}" disabled></div>
   </div>
   <div class="calc"></div>
