@@ -1,5 +1,8 @@
-{% set dup = line is not none and line.match_score < 0 %}
-<div class="line {{ 'unmatched' if line is not none and not line.ingredient_id and not dup }} {{ 'removed' if dup }}" data-row="{{ row }}">
+{% set dup = line is not none and line.match_score < 0 and not line.ingredient_id %}
+{% set h = hints.get(line.id) if line is not none and hints is defined else none %}
+<div class="line {{ 'unmatched' if line is not none and not line.ingredient_id and not dup }} {{ 'removed' if dup }}" data-row="{{ row }}"
+  {% if h %}data-spec="1" data-pieces="{{ h.pieces }}" data-content="{{ h.content }}" data-kind="{{ h.kind }}"
+  data-new-unit="{{ h.new_unit }}" data-new-factor="{{ h.new_factor }}" data-new-area="{{ h.new_area }}"{% endif %}>
   <input type="hidden" name="row" value="{{ row }}">
   <input type="hidden" name="line_id_{{ row }}" value="{{ line.id if line else '' }}">
   <div class="line-top">

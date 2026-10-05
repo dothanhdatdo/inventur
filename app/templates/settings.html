@@ -46,7 +46,7 @@
 <div class="grid grid-2">
   <form class="card" method="post" action="/settings/ocr">
     <div class="card-head"><h2>🤖 AI đọc hoá đơn</h2>
-      <span class="pill {{ 'pill-ok' if ocr_ready else 'pill-warn' }}">Đang dùng: {{ ocr_labels.get(ocr_provider, ocr_provider) }}{{ ' (thiếu key)' if ocr_provider != 'demo' and not ocr_ready }}</span></div>
+      <span class="pill {{ 'pill-ok' if ocr_ready else 'pill-warn' }}">Đang dùng: {{ ocr_labels.get(ocr_provider, ocr_provider) }}{{ ' (thiếu key)' if ocr_provider not in ('demo', 'local') and not ocr_ready }}</span></div>
     <div class="free-box">
       <strong>💡 Miễn phí: Google Gemini</strong>
       <ol class="small">

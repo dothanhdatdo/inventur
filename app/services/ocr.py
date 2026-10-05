@@ -80,6 +80,7 @@ class ParsedInvoice:
     source: str = "demo"
     raw: dict = field(default_factory=dict)
     deposit: float = 0.0  # tiền cọc vỏ (Leergut/Pfand) – không nhập kho
+    warnings: list[str] = field(default_factory=list)  # vd. tổng các dòng đọc được khác tổng in trên hoá đơn
 
 
 def get_settings(session=None) -> dict:

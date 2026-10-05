@@ -100,11 +100,7 @@ def match_line(
 ) -> Match:
     alias = find_alias(session, supplier_id, raw_name)
     if alias:
-        factor = alias.pack_factor
-        if (unit_raw or "").strip().upper() == "KG" and units_per_pack and units_per_pack > 0:
-            # Hàng cân: mỗi lần một khối lượng khác -> lấy số kg trên hoá đơn, không dùng hệ số lần trước.
-            factor = pack_factor_with_hint(raw_name, unit_raw, alias.ingredient, units_per_pack)
-        return Match(alias.ingredient, 1.0, factor, from_alias=True)
+        return Match(alias.ingredient, 1.0, alias.pack_factor, from_alias=True)
     if ingredients is None:
         ingredients = list(session.scalars(select(Ingredient).where(Ingredient.active == 1)).all())
     best: Ingredient | None = None
@@ -114,37 +110,74 @@ def match_line(
         if score > best_score:
             best, best_score = ing, score
     if best is None or best_score < MATCH_THRESHOLD:
-        return Match(None, best_score, units_per_pack or 1.0)
+        return Match(None, best_score, 1.0)
     return Match(best, best_score, pack_factor_with_hint(raw_name, unit_raw, best, units_per_pack))
 
 
 # Hoá đơn METRO ghi dung tích chai ở đầu tên, không có đơn vị: "0,50 DPG PET COCA-COLA", "1,00 MW SCHWEPPES".
 BOTTLE_SIZE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s+(?:MW|DPG|PG|EW|E)\b", re.I)
 SIZE_IN_NAME = re.compile(r"(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b", re.I)
-MULTI_SIZE = re.compile(r"\d+\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:kg|g|l|ml)\b", re.I)  # "10x80g", "4x50g"
+MULTI_SIZE = re.compile(r"(\d+)\s*[x×]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b", re.I)  # "10x80g", "120X10g"
+COUNT_IN_NAME = re.compile(r"\b(\d+)\s*er\b", re.I)  # "12ER BILLY AUSGIESSER", "6er Pack"
+
+
+@dataclass
+class LineSpec:
+    """Một đơn vị trên hoá đơn chứa gì: bao nhiêu cái lẻ, tổng bao nhiêu kg/l (nếu tên có ghi)."""
+
+    pieces: float
+    content: float | None = None
+    kind: str | None = None  # "kg" hoặc "l"
+    multipack: bool = False
+
+
+def line_spec(raw_name: str, unit_raw: str = "", units_per_pack: float | None = None) -> LineSpec:
+    """units_per_pack: số cái trong 1 đơn vị HĐ nếu hoá đơn cho biết (METRO: cột INHALT, vd. 24 chai/két)."""
+    hint = units_per_pack if units_per_pack and units_per_pack > 0 else 1.0
+    name = raw_name or ""
+    multi = MULTI_SIZE.search(name)
+    if multi:
+        count, unit = int(multi.group(1)), multi.group(3).lower()
+        kind = "kg" if unit in ("kg", "g") else "l"
+        content = hint * count * _convert(to_number(multi.group(2)), unit, kind)
+        return LineSpec(hint * count, round(content, 6), kind, multipack=True)
+    count = COUNT_IN_NAME.search(name)
+    if count and int(count.group(1)) > 1:
+        return LineSpec(hint * int(count.group(1)), multipack=True)
+    size = SIZE_IN_NAME.search(name)
+    if size:
+        unit = size.group(2).lower()
+        kind = "kg" if unit in ("kg", "g") else "l"
+        return LineSpec(hint, round(hint * _convert(to_number(size.group(1)), unit, kind), 6), kind)
+    bottle = BOTTLE_SIZE.search(name)
+    if bottle:
+        return LineSpec(hint, round(hint * to_number(bottle.group(1)), 6), "l")
+    return LineSpec(hint)
+
+
+def factor_for(spec: LineSpec, unit_raw: str, ingredient: Ingredient) -> float:
+    """Số đơn vị kho trong 1 đơn vị trên hoá đơn (cùng quy tắc với app.js factorFor)."""
+    base_kind = UNIT_ALIASES.get(normalize(ingredient.unit))
+    raw_kind = UNIT_ALIASES.get(normalize(unit_raw))
+    unit = normalize(unit_raw)
+    if raw_kind:  # hàng cân/đong: số lượng trên HĐ đã là kg/l
+        return _convert(1.0, raw_kind, base_kind) if base_kind else 1.0
+    if base_kind:
+        if spec.kind and spec.content and (spec.kind == "kg") == (base_kind in ("kg", "g")):
+            return round(_convert(spec.content, spec.kind, base_kind), 6)
+        if ingredient.pack_unit and unit and unit == normalize(ingredient.pack_unit):
+            return ingredient.pack_size or 1.0
+        return spec.pieces
+    if ingredient.pack_unit and unit and unit == normalize(ingredient.pack_unit) and spec.pieces == 1:
+        return ingredient.pack_size or 1.0
+    return spec.pieces
 
 
 def pack_factor_with_hint(raw_name: str, unit_raw: str, ingredient: Ingredient, units_per_pack: float | None) -> float:
-    """Số đơn vị kho trong 1 đơn vị trên hoá đơn khi hoá đơn cho biết số cái/kolli (vd. METRO: 24 chai/két).
-
-    - Hàng cân ("KG"): units_per_pack là số kg.
-    - Kho tính theo kg/l: dung tích trong tên (0,75l, 10l, 1kg) × số cái.
-    - Kho tính theo cái/chai/lon: số cái.
-    """
-    if not units_per_pack or units_per_pack <= 0 or abs(units_per_pack - 1) < 1e-9:
+    """Như guess_pack_factor, nhưng khi hoá đơn cho biết số cái/kiện (METRO) thì tính chính xác từ đó."""
+    if not units_per_pack or units_per_pack <= 0:
         return guess_pack_factor(raw_name, unit_raw, ingredient)
-    base_kind = UNIT_ALIASES.get(normalize(ingredient.unit))
-    if (unit_raw or "").strip().upper() == "KG":
-        return round(units_per_pack * (1000 if base_kind == "g" else 1), 6)
-    if base_kind:
-        size = SIZE_IN_NAME.search(raw_name or "")
-        if size:
-            return round(units_per_pack * _convert(to_number(size.group(1)), size.group(2).lower(), base_kind), 6)
-        bottle = BOTTLE_SIZE.search(raw_name or "")
-        if bottle and base_kind in ("l", "ml"):
-            return round(units_per_pack * _convert(to_number(bottle.group(1)), "l", base_kind), 6)
-        return units_per_pack
-    return units_per_pack
+    return factor_for(line_spec(raw_name, unit_raw, units_per_pack), unit_raw, ingredient)
 
 
 def to_number(text: str) -> float:
@@ -169,6 +202,10 @@ def guess_pack_factor(raw_name: str, unit_raw: str, ingredient: Ingredient) -> f
         return 0.001
     if unit in ("ml",) and base == "l":
         return 0.001
+    if unit == "kg" and base == "g":
+        return 1000.0
+    if unit == "l" and base == "ml":
+        return 1000.0
 
     text = (raw_name or "").lower().replace(",", ".")
     base_kind = UNIT_ALIASES.get(base)

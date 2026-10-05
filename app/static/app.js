@@ -12,6 +12,8 @@ const num = (v) => {
 };
 const money = (v) => (v || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 const qty = (v) => (Math.round((v || 0) * 1000) / 1000).toLocaleString('de-DE');
+// Giá trị điền vào ô nhập (không dấu phân cách nghìn, để server đọc đúng): 1000 -> "1000", 5.406 -> "5,406".
+const inputNum = (v) => String(Math.round((v || 0) * 1e6) / 1e6).replace('.', ',');
 
 // ---------- nhập hàng: kéo thả / xem trước ----------
 function initDropzone() {
@@ -90,7 +92,14 @@ function bindLine(el) {
     el.classList.toggle('unmatched', !sel.value && !f('.del-box').checked);
     el.classList.toggle('removed', f('.del-box').checked);
     const ing = window.INGREDIENTS[sel.value];
-    if (sel.value === 'new') { calc.textContent = 'Sẽ tạo nguyên liệu mới với tên trên hoá đơn.'; return; }
+    if (sel.value === 'new') {
+      const newUnit = el.dataset.newUnit;
+      const areaNew = (window.AREA_LABELS || {})[el.dataset.newArea];
+      calc.textContent = newUnit
+        ? `Sẽ tạo nguyên liệu mới${areaNew ? ' (' + areaNew.icon + ' ' + areaNew.label + ')' : ''}, tính theo ${newUnit} → nhập kho ${qty(num(qtyEl.value) * (num(factor.value) || 1))} ${newUnit}`
+        : 'Sẽ tạo nguyên liệu mới với tên trên hoá đơn.';
+      return;
+    }
     if (!ing) { calc.textContent = 'Chưa gắn nguyên liệu – dòng này sẽ bị bỏ qua khi nhập kho.'; return; }
     const base = num(qtyEl.value) * (num(factor.value) || 1);
     const cost = base ? num(total.value) / base : 0;
@@ -110,14 +119,37 @@ function bindLine(el) {
   f('.del-box').addEventListener('change', () => recalc());
   sel.addEventListener('change', () => {
     const ing = window.INGREDIENTS[sel.value];
-    if (ing) {
-      const u = unit.value.trim().toLowerCase();
+    const u = unit.value.trim().toLowerCase();
+    if (sel.value === 'new' && el.dataset.newFactor) {
+      factor.value = inputNum(num(el.dataset.newFactor));
+    } else if (ing && el.dataset.spec) {
+      factor.value = inputNum(factorFor(el.dataset, ing, u));
+    } else if (ing) {
       if (u && u === ing.unit.toLowerCase()) factor.value = 1;
       else if (ing.pack_unit && u === ing.pack_unit.toLowerCase()) factor.value = ing.pack_size;
     }
     recalc();
   });
   describe();
+}
+
+// Quy đổi 1 đơn vị trên hoá đơn -> đơn vị kho (cùng quy tắc với matching.factor_for ở server).
+const UNIT_KIND = { kg: 'kg', kilo: 'kg', kilogramm: 'kg', g: 'g', gr: 'g', gramm: 'g', l: 'l', ltr: 'l', liter: 'l', lit: 'l', 'lít': 'l', ml: 'ml' };
+const UNIT_SCALE = { kg: 1, g: 0.001, l: 1, ml: 0.001 };
+const isWeight = (k) => k === 'kg' || k === 'g';
+function factorFor(spec, ing, u) {
+  const rawKind = UNIT_KIND[u];
+  const baseKind = UNIT_KIND[ing.unit.trim().toLowerCase()];
+  const pieces = num(spec.pieces) || 1;
+  const content = num(spec.content);
+  const packMatch = ing.pack_unit && u && u === ing.pack_unit.trim().toLowerCase();
+  let f = pieces;
+  if (rawKind) f = baseKind && isWeight(rawKind) === isWeight(baseKind) ? UNIT_SCALE[rawKind] / UNIT_SCALE[baseKind] : 1;
+  else if (baseKind) {
+    if (spec.kind && content && isWeight(spec.kind) === isWeight(baseKind)) f = content * UNIT_SCALE[spec.kind] / UNIT_SCALE[baseKind];
+    else if (packMatch) f = ing.pack_size || 1;
+  } else if (packMatch && pieces === 1) f = ing.pack_size || 1;
+  return Math.round(f * 1e6) / 1e6;
 }
 
 function updateTotals() {

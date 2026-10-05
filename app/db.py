@@ -96,6 +96,7 @@ class InvoiceLine(Base):
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     match_score: Mapped[float] = mapped_column(Float, default=0.0)  # -1 = trùng hoá đơn đã nhập kho
     category_hint: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    units_per_pack: Mapped[float | None] = mapped_column(Float, nullable=True)  # số cái / đơn vị HĐ nếu HĐ ghi (METRO)
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
     ingredient: Mapped[Ingredient | None] = relationship()

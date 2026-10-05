@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import mimetypes
-import re
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -628,6 +627,8 @@ async def invoice_scan(request: Request, file: UploadFile = File(None), db: Sess
     db.commit()
     duplicates = [line for line in invoice.lines if line.match_score < 0]
     previous = invoice_service.duplicate_of(db, invoice)
+    draft = invoice_service.other_draft(db, invoice)
+    warnings = list(parsed.warnings)
     if parsed.source == "demo":
         flash(request, "Chế độ DEMO: đang hiển thị dữ liệu hoá đơn mẫu (chọn AI thật ở Cài đặt).", "warn")
     elif parsed.source == "pdf":
@@ -639,10 +640,17 @@ async def invoice_scan(request: Request, file: UploadFile = File(None), db: Sess
     elif parsed.source != "manual":
         flash(request, f"AI đã đọc {len(invoice.lines)} dòng. Hãy kiểm tra trước khi nhập kho.")
     if previous is not None:
-        request.session["alert_flash"] = (
+        warnings.append(
             f"Hoá đơn số {invoice.invoice_number} đã được nhập kho trước đó (#{previous.id}). "
             f"{len(duplicates)} dòng trùng đã được bỏ gắn để không nhập kho hai lần."
         )
+    if draft is not None:
+        warnings.append(
+            f"Đã có phiếu nháp #{draft.id} cho hoá đơn số {invoice.invoice_number} – chỉ cần nhập kho một phiếu, "
+            "phiếu thừa thì xoá đi (dòng nào đã nhập sẽ không bị nhập lần hai)."
+        )
+    if warnings:
+        request.session["alert_flash"] = " ".join(warnings)
     return redirect(f"/invoices/{invoice.id}")
 
 
@@ -676,6 +684,7 @@ def invoice_review(request: Request, invoice_id: int, db: Session = Depends(get_
         ing_json=ing_json,
         suppliers=db.scalars(select(Supplier).order_by(Supplier.name)).all(),
         area_totals=invoice_service.area_totals(invoice),
+        hints={line.id: invoice_service.line_hints(line) for line in invoice.lines} if invoice.status == "draft" else {},
     )
 
 
@@ -730,51 +739,36 @@ async def _save_invoice_form(request: Request, db: Session, invoice: Invoice) ->
             created.append(ing)
         else:
             line.ingredient_id = int(choice) if choice.isdigit() else None
+        if line.ingredient_id and (line.match_score or 0) < 0:
+            line.match_score = 0.0  # người dùng chủ động giữ dòng đã đánh dấu trùng
         keep.append(line)
     for line in list(invoice.lines):
         if line not in keep:
             invoice.lines.remove(line)
-    invoice.subtotal = round(sum(line.line_total for line in invoice.lines), 2)
+    invoice.subtotal = round(sum(line.line_total for line in invoice.lines if invoice_service.counts_in_totals(line)), 2)
     invoice.total = round(invoice.subtotal + invoice.vat, 2)
     return created
 
 
-# Mã đóng gói trên hoá đơn METRO -> tên đơn vị mua.
-PACK_CODES = {
-    "KA": "két", "KI": "két", "SC": "két", "KT": "thùng", "SP": "lốc", "PG": "gói", "DS": "lon", "TG": "hộp",
-    "BT": "túi", "EI": "xô", "KS": "can", "FS": "bao", "ST": "cái",
-}
-
-
 def _create_ingredient_from_line(db: Session, line: InvoiceLine) -> Ingredient:
+    """"+ Tạo nguyên liệu mới": ô Quy đổi tính theo đơn vị của nguyên liệu mới (app.js điền sẵn theo new_item_plan)."""
     name = line.raw_name.strip()[:200]
+    plan = invoice_service.line_plan(line)
+    factor = line.pack_factor if line.pack_factor and line.pack_factor > 0 else plan.factor
     existing = db.scalars(select(Ingredient).where(Ingredient.name == name)).first()
     if existing:
         existing.active = 1
+        if existing.unit != plan.unit:  # trùng tên với nguyên liệu có sẵn khác đơn vị -> quy đổi theo đơn vị của nó
+            spec = matching.line_spec(line.raw_name, line.unit_raw, line.units_per_pack)
+            line.pack_factor = matching.factor_for(spec, line.unit_raw, existing)
         return existing
-    weighed = (line.unit_raw or "").strip().upper() == "KG"
-    unit = "kg" if weighed else (matching.UNIT_ALIASES.get(matching.normalize(line.unit_raw), "") or "cái")
-    category = line.category_hint or "Mới từ hoá đơn"
-    # Đoán khu: nhóm hàng trên hoá đơn, tên giống đồ uống hoặc VAT 19% -> quầy; còn lại -> bếp.
-    area = areas.guess_area(name, category, line.vat_rate or None)
-    pieces = line.pack_factor if line.pack_factor and line.pack_factor > 0 else 1.0  # số cái trong 1 đơn vị HĐ
-    nonfood = areas.looks_like_nonfood(name) or any(w in areas._plain(category) for w in (" nonfood ", " drogerie "))
-    size = matching.SIZE_IN_NAME.search(name)
-    if unit == "cái" and area == areas.BAR and (matching.BOTTLE_SIZE.search(name) or re.search(r"\d\s*(?:l|ml)\b", name, re.I)):
-        unit = "chai"
-    elif unit == "cái" and area == areas.KITCHEN and not nonfood and size and not matching.MULTI_SIZE.search(name):
-        # Đồ bếp ghi khối lượng/dung tích trong tên ("1kg ...", "800G ...", "10l DẦU") -> kho tính kg/l để dùng cho định lượng.
-        unit = "kg" if size.group(2).lower() in ("kg", "g") else "l"
-        line.pack_factor = round(pieces * matching._convert(matching.to_number(size.group(1)), size.group(2).lower(), unit), 6)
-        weighed = True
-    ing = Ingredient(name=name, category=category, unit=unit, area=area)
-    if not weighed and line.pack_factor and line.pack_factor > 1 and unit in ("cái", "chai"):
-        # Hoá đơn cho biết số cái mỗi kiện (vd. METRO: 12 chai/thùng) -> kho tính theo cái/chai.
-        code = (line.unit_raw or "").strip().upper()
-        ing.pack_unit = PACK_CODES.get(code, code.lower() or "kiện")
-        ing.pack_size = line.pack_factor
-    else:
-        line.pack_factor = line.pack_factor if weighed else 1.0
+    ing = Ingredient(name=name, category=plan.category, unit=plan.unit, area=plan.area)
+    if plan.unit in invoice_service.COUNT_UNITS and factor > 1:
+        # Hoá đơn cho biết số cái mỗi kiện (vd. METRO: 12 chai/lốc) -> kho tính theo cái/chai, mua theo kiện.
+        code = (line.unit_raw or "").strip()
+        ing.pack_unit = plan.pack_unit or invoice_service.PACK_CODES.get(code.upper(), code.lower() or "kiện")
+        ing.pack_size = factor
+    line.pack_factor = factor
     db.add(ing)
     db.flush()
     return ing
@@ -790,9 +784,10 @@ async def invoice_save(request: Request, invoice_id: int, db: Session = Depends(
         return redirect(f"/invoices/{invoice_id}")
     created = await _save_invoice_form(request, db, invoice)
     form = await request.form()
+    shown = ", ".join(f"{i.name} → {areas.AREAS[i.area]['label']}" for i in created[:5])
     created_note = (
-        "Nguyên liệu mới: " + ", ".join(f"{i.name} → {areas.AREAS[i.area]['label']}" for i in created)
-        + " (sai khu thì sửa ở trang nguyên liệu)"
+        f"Nguyên liệu mới ({len(created)}): {shown}" + (f" … (+{len(created) - 5})" if len(created) > 5 else "")
+        + " (sai khu/đơn vị thì sửa ở trang nguyên liệu)"
     ) if created else ""
     if form.get("action") == "confirm":
         try:
@@ -1169,8 +1164,11 @@ def settings_ocr(
     settings = ocr.get_settings(db)
     provider = ocr.active_provider(settings)
     label = templates.env.globals["ocr_labels"].get(provider, provider)
-    if provider != "demo" and not ocr.provider_ready(settings):
-        flash(request, f"Đã chọn {label} nhưng chưa có API key – hãy dán key rồi lưu lại. Trong lúc chờ, quét hoá đơn sẽ báo lỗi.", "warn")
+    if provider == "local":
+        flash(request, "Đã lưu cài đặt AI · hoá đơn PDF của METRO đọc được ngay (không cần AI); "
+                       "ảnh chụp hoá đơn cần key – Google Gemini miễn phí.")
+    elif provider != "demo" and not ocr.provider_ready(settings):
+        flash(request, f"Đã chọn {label} nhưng chưa có API key – hãy dán key rồi lưu lại. Trong lúc chờ, ảnh chụp hoá đơn sẽ không đọc được (PDF METRO vẫn đọc được).", "warn")
     else:
         flash(request, f"Đã lưu cài đặt AI · đang dùng: {label}")
     return redirect("/settings")

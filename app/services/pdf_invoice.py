@@ -39,7 +39,9 @@ METRO_MHD = re.compile(r"MHD:\s*(\d{6})")
 METRO_NUMBER = re.compile(r"RECHNUNGS-NR\.\s+(\S+)")
 METRO_DATE = re.compile(r"RECHNUNGSDATUM:\s+(\d{2}\.\d{2}\.\d{4})")
 METRO_STORE = re.compile(r"^\s*METRO Deutschland GmbH\s{2,}(\S[^\n]*?)\s{2,}", re.M)
-METRO_SECTION = re.compile(r"^\s*\*{4}\s*(.+?)\s*\*{4}\s*$")
+METRO_SECTION = re.compile(r"^\*{4} ?([^*]+?) ?\*{4}$")
+METRO_NET = re.compile(r"NETTO-WARENWERT:\s+([\d.]*\d,\d{2})")
+MAX_LINE = 400  # dòng dài bất thường -> bỏ qua (tránh regex chạy quá lâu với PDF lạ)
 VAT_CLASS = {"A": 19.0, "B": 7.0}
 # Nhóm hàng trên hoá đơn METRO -> nhóm trong kho (quyết định cả khu Bếp/Quầy khi tạo nguyên liệu mới).
 METRO_GROUPS = {
@@ -72,6 +74,9 @@ def parse_metro(text: str) -> ParsedInvoice | None:
     last: ParsedLine | None = None
     section = ""
     for raw in text.splitlines():
+        if len(raw) > MAX_LINE:
+            continue
+        raw = " ".join(raw.split())  # bỏ khoảng trắng thừa của bố cục cột
         heading = METRO_SECTION.match(raw)
         if heading:
             key = heading.group(1).strip().lower().replace("ü", "ue").replace("ä", "ae").replace("ö", "oe")
@@ -93,14 +98,19 @@ def parse_metro(text: str) -> ParsedInvoice | None:
             # Có giảm giá -> STÜCK PREIS thấp hơn đơn giá; thành tiền thật = số đơn vị × giá sau giảm.
             if piece_price < unit_price - 1e-9 and units:
                 total = round(units * piece_price, 2)
+            if g["pack"] == "KG":
+                # Hàng cân (thịt, cá...): số lượng = số kg thật, đơn giá = €/kg -> gắn vào nguyên liệu "kg" là đúng ngay.
+                quantity, per_unit = round(units, 3), 1.0
+            else:
+                quantity, per_unit = qty, per_pack
             last = ParsedLine(
-                name=re.sub(r"\s+", " ", g["name"]).strip(),
-                quantity=qty,
+                name=g["name"].strip(),
+                quantity=quantity,
                 unit=g["pack"],
-                unit_price=round(total / qty, 4) if qty else total,
+                unit_price=round(total / quantity, 4) if quantity else total,
                 total=total,
                 vat_rate=VAT_CLASS[g["vat"]],
-                units_per_pack=per_pack,
+                units_per_pack=per_unit,
                 article_no=g["art"],
                 category=section,
             )
@@ -120,6 +130,14 @@ def parse_metro(text: str) -> ParsedInvoice | None:
     store = METRO_STORE.search(text)
     subtotal = round(sum(line.total for line in lines), 2)
     vat = round(sum(line.total * line.vat_rate / 100 for line in lines), 2)
+    warnings = []
+    printed = METRO_NET.search(text)
+    if printed and abs(subtotal + deposit - to_float(printed.group(1))) > 0.05:
+        # Có dòng không đọc được (vd. trả hàng, storno) -> báo để người dùng so lại với PDF.
+        warnings.append(
+            f"Tổng các dòng đọc được ({_eur(subtotal + deposit)}) khác NETTO-WARENWERT trên hoá đơn "
+            f"({_eur(to_float(printed.group(1)))}) – có dòng chưa đọc được, hãy so lại với file PDF trước khi nhập kho."
+        )
     return ParsedInvoice(
         supplier=f"METRO {store.group(1).strip()}" if store else "METRO",
         invoice_number=number.group(1) if number else "",
@@ -129,9 +147,15 @@ def parse_metro(text: str) -> ParsedInvoice | None:
         total=round(subtotal + vat, 2),
         lines=lines,
         source="pdf",
-        raw={"parser": "metro", "lines": len(lines), "deposit_net": round(deposit, 2)},
+        raw={"parser": "metro", "lines": len(lines), "deposit_net": round(deposit, 2),
+             "net_printed": to_float(printed.group(1)) if printed else None},
         deposit=round(deposit, 2),
+        warnings=warnings,
     )
+
+
+def _eur(value: float) -> str:
+    return f"{value:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 PARSERS = [parse_metro]
