@@ -5,6 +5,8 @@ Chạy lúc khởi động app (server và bản trình duyệt) sau khi tạo d
 """
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime
 
 from sqlalchemy import delete, func, select
@@ -15,11 +17,12 @@ from ..db import (
     Batch, Dish, Ingredient, Invoice, InvoiceLine, Movement, RecipeItem, Sale, Stocktake, StocktakeLine, Supplier,
     SupplierAlias,
 )
-from ..services import alerts, invoices
-from . import metro_20260919
+from ..services import alerts, invoices, matching
+from . import metro_20260919, metro_20261005
 
-IMPORTS = [metro_20260919]
+IMPORTS = [metro_20260919, metro_20261005]
 NOTICE_KEY = "startup_notice"
+log = logging.getLogger("inventory.imports")
 
 
 def apply_pending(session: Session) -> list[str]:
@@ -30,7 +33,19 @@ def apply_pending(session: Session) -> list[str]:
         flag = f"import_{module.KEY}"
         if alerts.get_setting(session, flag):
             continue
-        note = apply_invoice_import(session, module)
+        try:
+            if getattr(module, "KIND", "") == "full_invoice":
+                note = apply_full_invoice(session, module)
+            else:
+                note = apply_invoice_import(session, module)
+        except Exception as exc:  # noqa: BLE001 - lỗi nhập dữ liệu không được làm app không mở được
+            session.rollback()
+            log.exception("Nhập dữ liệu %s thất bại", module.KEY)
+            notes.append(
+                f"Chưa nhập tự động được hoá đơn {getattr(module, 'INVOICE_NUMBER', module.KEY)} ({exc}). "
+                "Có thể tải file PDF hoá đơn lên ở trang Nhập hàng."
+            )
+            continue  # không đánh dấu đã chạy -> lần mở app sau thử lại
         alerts.set_setting(session, flag, datetime.now().isoformat(timespec="seconds"))
         session.commit()
         notes.append(note)
@@ -134,3 +149,91 @@ def apply_invoice_import(session: Session, module) -> str:
     session.commit()
     count = len({line[0] for line in module.LINES})
     return f"Đã xoá {removed} đồ uống mẫu và nhập {count} mặt hàng quầy từ hoá đơn METRO {when:%d.%m.%Y}"
+
+
+def _resolve_item(session: Session, supplier: Supplier, raw_name: str, unit_raw: str, units: float,
+                  spec: tuple, created: list[Ingredient]) -> tuple[Ingredient, float]:
+    """Mặt hàng trong kho cho một dòng: theo tên hàng METRO đã nhớ (người dùng đã gắn) -> theo tên -> tạo mới."""
+    name, category, unit, pack_unit, pack_size, factor, min_stock, par, area = spec
+    line_spec = matching.line_spec(raw_name, unit_raw, units)
+    alias = matching.find_alias(session, supplier.id, raw_name)
+    if alias is not None and alias.ingredient is not None:
+        ing = alias.ingredient
+        ing.active = 1
+        weighed = unit_raw.upper() == "KG"  # hàng cân: số lượng đã là kg -> quy theo đơn vị kho
+        return ing, (matching.factor_for(line_spec, unit_raw, ing) if weighed else alias.pack_factor or 1.0)
+    ing = session.scalars(select(Ingredient).where(Ingredient.name == name)).first()
+    if ing is not None:
+        ing.active = 1
+        return ing, (factor if ing.unit == unit else matching.factor_for(line_spec, unit_raw, ing))
+    ing = Ingredient(
+        name=name, category=category, unit=unit, pack_unit=pack_unit, pack_size=pack_size,
+        min_stock=min_stock, par_level=par, supplier_id=supplier.id, area=area,
+    )
+    session.add(ing)
+    session.flush()
+    created.append(ing)
+    return ing, factor
+
+
+def apply_full_invoice(session: Session, module) -> str:
+    """Nhập trọn một hoá đơn (bếp + quầy) qua đúng quy trình nhập kho của app.
+
+    invoices.confirm() chống nhập trùng theo từng dòng: nếu người dùng đã tự quét và nhập hoá đơn này
+    (một phần hay toàn bộ), các dòng đó được bỏ qua.
+    """
+    when = datetime(*module.INVOICE_DATE)
+    supplier = invoices.find_supplier(session, module.SUPPLIER)
+    if supplier is None:
+        supplier = Supplier(name=module.SUPPLIER, note=module.SUPPLIER_NOTE)
+        session.add(supplier)
+        session.flush()
+    invoice = Invoice(
+        supplier_id=supplier.id, supplier_name_raw=module.SUPPLIER, invoice_number=module.INVOICE_NUMBER,
+        invoice_date=when.date(), source="email", subtotal=module.SUBTOTAL, vat=module.VAT,
+        total=round(module.SUBTOTAL + module.VAT, 2),
+        raw_json=json.dumps({"import": module.KEY, "deposit_net": module.DEPOSIT}, ensure_ascii=False),
+    )
+    session.add(invoice)
+    created: list[Ingredient] = []
+    for row, raw_name, _art, unit_raw, qty, units, total, vat, expiry, category, key in module.LINES:
+        line = InvoiceLine(
+            position=row, source_row=row, raw_name=raw_name, quantity=qty, unit_raw=unit_raw,
+            unit_price=round(total / qty, 4), line_total=total, vat_rate=vat, expiry_date=expiry,
+            category_hint=category, units_per_pack=units, pack_factor=1.0, match_score=0.0,
+        )
+        if key is not None:
+            ing, factor = _resolve_item(session, supplier, raw_name, unit_raw, units, module.ITEMS[key], created)
+            line.ingredient_id, line.pack_factor, line.match_score = ing.id, factor, 1.0
+        invoice.lines.append(line)
+    session.flush()
+    label = f"hoá đơn METRO {when:%d.%m.%Y}"
+    try:
+        invoices.confirm(session, invoice)
+    except invoices.ConfirmError:  # mọi dòng đã được nhập trước đó (người dùng tự quét) -> không nhập gì
+        session.delete(invoice)
+        for ing in created:
+            session.delete(ing)
+        session.commit()
+        return f"{label.capitalize()} đã có trong kho (đã nhập trước đó) – không nhập lại"
+    invoice.confirmed_at = when
+    for batch in session.scalars(select(Batch).where(Batch.invoice_id == invoice.id)):
+        batch.received_at = when
+    for movement in session.scalars(select(Movement).where(Movement.reference.like(f"HĐ #{invoice.id} %"))):
+        movement.created_at = when
+    for ing in created:  # tạo ra nhưng dòng của nó đã được nhập trước đó -> bỏ
+        if not session.scalar(select(func.count(Batch.id)).where(Batch.ingredient_id == ing.id)):
+            session.execute(delete(SupplierAlias).where(SupplierAlias.ingredient_id == ing.id))
+            session.delete(ing)
+    alerts.check_low_stock(session)  # hàng mới nhập không phải "vừa xuống dưới ngưỡng"
+    session.commit()
+    booked = [line for line in invoice.lines if line.ingredient_id]
+    by_area = {area: len({line.ingredient_id for line in booked if line.ingredient.area == area}) for area in areas.AREA_KEYS}
+    skipped = sum(1 for line in invoice.lines if line.match_score == invoices.DUPLICATE)
+    unlinked = [line for line in invoice.lines if line.ingredient_id is None and invoices.counts_in_totals(line)]
+    parts = [f"Đã nhập {label}: {by_area[areas.KITCHEN]} mặt hàng bếp, {by_area[areas.BAR]} mặt hàng quầy"]
+    if skipped:
+        parts.append(f"{skipped} dòng đã có từ lần quét trước nên không nhập lại")
+    if unlinked:
+        parts.append(f"{len(unlinked)} dòng dụng cụ chỉ ghi vào hoá đơn, không tính tồn kho")
+    return " · ".join(parts)

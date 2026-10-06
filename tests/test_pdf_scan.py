@@ -494,3 +494,32 @@ def test_packaging_names_stay_nonfood():
         assert looks_like_nonfood(name) and guess_area(name, "", 19) == "kitchen", name
     for name in ("Kartoffeln 25kg Sack", "Thai Jasminreis 18kg Sack", "500g REISPAPIER 22CM", "Reis im Kochbeutel 4x125g"):
         assert not looks_like_nonfood(name), name
+
+
+FIXTURE_2 = (Path(__file__).parent / "fixtures" / "metro_invoice_2.txt").read_text(encoding="utf-8")
+
+
+def test_parse_second_metro_invoice_layout():
+    """05.10.2026: "BELEGDATUM" thay vì "RECHNUNGSDATUM"; giá sau Mengenrabatt trừ vào GESAMT (không làm tròn sai)."""
+    p = pdf_invoice.parse_metro(FIXTURE_2)
+    assert p.invoice_number == "05.10.2026/071/0/0/0502/054905" and p.invoice_date == date(2026, 10, 5)
+    assert len(p.lines) == 21 and p.warnings == []
+    assert p.subtotal == 632.60 and p.deposit == 132.00  # NETTO-WARENWERT 764,60
+    assert p.vat == 92.98  # bảng VAT in trên hoá đơn: 77,10 + 15,88
+    by_name = {}
+    for line in p.lines:
+        by_name.setdefault(line.name, []).append(line)
+    assert by_name["0,50 DPG PET COCA-COLA"][0].total == 182.38
+    assert by_name["0,50 DPG PET COCA-COLA ZERO"][0].total == 132.64  # 190,24 - 192 × 0,30
+    assert [round(x.quantity, 3) for x in by_name["MPM FRZ. BARBARIE EN HENRY IV"]] == [1.582, 1.651, 1.61]
+    assert by_name["REGIO SW-PFOTEN IM BEUTEL"][0].expiry == date(2026, 10, 8)
+    assert by_name["10L ARO ALLES REINIGER"][0].total == 22.47 and by_name["10L ARO ALLES REINIGER"][0].category == "Vệ sinh / Drogerie"
+    nets = {}
+    for line in p.lines:
+        nets[line.vat_rate] = round(nets.get(line.vat_rate, 0) + line.total, 2)
+    assert nets == {19.0: 405.78, 7.0: 226.82}  # đúng bảng VAT trên hoá đơn
+
+
+def test_vat_table_mismatch_is_reported():
+    broken = FIXTURE_2.replace("405,78  A=19,00%", "415,78  A=19,00%")
+    assert any("VAT 19 %" in w for w in pdf_invoice.parse_metro(broken).warnings)

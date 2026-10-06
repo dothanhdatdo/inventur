@@ -1,0 +1,111 @@
+METRO Deutschland GmbH                            Gundelfingen                                                             SEITE:    1
+ Metro-Straße 8                                    Industriestr. 42                               BELEGDATUM:          05.10.2026 09:33
+ 40235 Düsseldorf                                  79194 Gundelfingen                             BELEGDRUCK:          05.10.2026 09:34
+                                                   TEL.: 0211-17607090                            LIEFERDATUM:         05.10.2026 09:33
+
+                                                  Zum Ortstarif -  Kosten für Anrufe
+                                                   aus dem Mobilfunknetz können abweichen
+                                                   Email: kontakt@metro.de
+ USt-IdNr.:  DE184048859
+ WEEE Registriernr.: DE 59176073
+
+MSC-Lizenznummer: MSC-C-50530
+ BIO Produkte: DE-OEKO-039
+ BattG Registriernr.: 21000165
+ ASC-Lizenznummer: ASC-C-00069
+
+
+
+RECHNUNGS-NR.           05.10.2026/071/0/0/0502/054905  TECHNICAL ID:502-631693                                         071/050   6922
+--------------------------------------------------------------------------------------------------------------------------------------
+ --------------------------------------------------------------------------------------------------------------------------------------
+                                    ZAHLBETRAG FÜR LIEFERSCHEIN 0/0/0502/054903   (0502/631690)           882,66
+
+--------------------------------------------------------------------------------------------------------------------------------------
+ MM ART.-NR  EAN           ARTIKEL                        PACK    EINZEL     INHALT      KOLLI  MENGE      GESAMT  M      STÜCK INT KD
+                           BEZEICHNUNG                             PREIS      KOLLI      PREIS              PREIS         PREIS
+ --------------------------------------------------------------------------------------------------------------------------------------
+ **** Nonfood ****
+   000531.4 4337182107361  MPRO GN DECKEL 1/6 EDS M AUSSP  ST      3,490          1       3,49      5       17,45  A      3,140 *
+   945746.6 4337182016342  MPRO GN DECKEL 1/4 EDS          ST      3,490          1       3,49      3       10,47  A      3,140 *
+ **** Feinkost / Mopro ****
+   933445.9 4018905554784  ARO 250g BUTTER MILD GES.       KT      1,110         40      44,40      2       88,80  B      1,110
+ **** Bier / AfG ****
+   522200.5 4100590122475  0,50 DPG FL VIO                 SP      0,490         18       8,82      2       17,64  A      0,440 *
+ + 028982.7                MW LEERGUT EURO 4,50            KT      4,500          1       4,50      2        9,00  A      4,500
+   806563.3 5449000134325  0,50 DPG PET COCA-COLA ZERO     SP      0,991         12      11,89     16      190,24  A      0,691 *
+ + 067636.1                DPG LEERGUT EURO 3,00           ST      3,000          1       3,00     16       48,00  A      3,000
+   806566.6 5449000027337  0,50 DPG PET COCA-COLA          SP      0,991         12      11,89     22      261,58  A      0,691 *
+ + 067636.1                DPG LEERGUT EURO 3,00           ST      3,000          1       3,00     22       66,00  A      3,000
+   894378.9 5449000229687  0,50 DPG FL VIO SPRITZIG        SP      0,490         18       8,82      2       17,64  A      0,440 *
+ + 028982.7                MW LEERGUT EURO 4,50            KT      4,500          1       4,50      2        9,00  A      4,500
+ **** Drogerie ****
+   072653.9 4337182273813  10L ARO ALLES  REINIGER         KS      8,290          1       8,29      3       24,87  A      7,490 *
+   196982.3 4003885100021  25kg AXAL SALZ-TABLETTE         BT     11,490          1      11,49      1       11,49  A     11,490
+ **** Fleisch / Wurst ****
+   110272.2 03266980858964 LOUÉ FREILAND MAISHAEHNCHEN CA  KG      9,990      1,418      14,17      1       14,17  B      9,990
+                           BC GTIN:  03266980858964 LOT-Nr: 0026167528
+                           MHD: 261011
+   110272.2 03266980858964 LOUÉ FREILAND MAISHAEHNCHEN CA  KG      9,990      1,383      13,82      1       13,82  B      9,990
+                           BC GTIN:  03266980858964 LOT-Nr: 0026167528
+                           MHD: 261011
+   487532.4 94018905621915 MPM FRZ. BARBARIE EN HENRY IV   KG      8,990      1,582      14,22      1       14,22  B      8,990
+                           BC GTIN:  94018905621915 LOT-Nr: 0256052911
+                           MHD: 261009
+   487532.4 94018905621915 MPM FRZ. BARBARIE EN HENRY IV   KG      8,990      1,651      14,84      1       14,84  B      8,990
+                           BC GTIN:  94018905621915 LOT-Nr: 0256052911
+                           MHD: 261009
+   487532.4 94018905621915 MPM FRZ. BARBARIE EN HENRY IV   KG      8,990      1,610      14,47      1       14,47  B      8,990
+                           BC GTIN:  94018905621915 LOT-Nr: 0256052911
+                           MHD: 261009
+                                                                                      SEITENSUMME:        843,70
+METRO Deutschland GmbH                            Gundelfingen                                                             SEITE:    2
+ Metro-Straße 8                                    Industriestr. 42                               BELEGDATUM:          05.10.2026 09:33
+ 40235 Düsseldorf                                  79194 Gundelfingen                             BELEGDRUCK:          05.10.2026 09:34
+ RECHNUNGS-NR.           05.10.2026/071/0/0/0502/054905  TECHNICAL ID:502-631693                                         071/050   6922
+
+--------------------------------------------------------------------------------------------------------------------------------------
+ --------------------------------------------------------------------------------------------------------------------------------------
+ MM ART.-NR  EAN           ARTIKEL                        PACK    EINZEL     INHALT      KOLLI  MENGE      GESAMT  M      STÜCK INT KD
+                           BEZEICHNUNG                             PREIS      KOLLI      PREIS              PREIS         PREIS
+
+--------------------------------------------------------------------------------------------------------------------------------------
+                                                                            ÜBERTRAG SEITENSUMME:         843,70
+   742772.7 94004951888648 REGIO SW-BAUCH E 20/50 GEZ.     KG      5,290      4,558      24,11      1       24,11  B      5,290
+                           BC GTIN:  94004951888648 LOT-Nr: 0340260891
+                           MHD: 261008
+   742785.9 94004951888761 REGIO SW-GRILLHAXEN 1/3 SCHW.   KG      2,690      1,620       4,36      1        4,36  B      2,690
+
+                          BC GTIN:  94004951888761 LOT-Nr: 0440260891
+                          MHD: 261010
+   742785.9 94004951888761 REGIO SW-GRILLHAXEN 1/3 SCHW.   KG      2,690      1,796       4,83      1        4,83  B      2,690
+                           BC GTIN:  94004951888761 LOT-Nr: 0440260891
+                           MHD: 261010
+   742785.9 94004951888761 REGIO SW-GRILLHAXEN 1/3 SCHW.   KG      2,690      1,738       4,68      1        4,68  B      2,690
+                           BC GTIN:  94004951888761 LOT-Nr: 0440260891
+                           MHD: 261010
+
+  742785.9 94004951888761 REGIO SW-GRILLHAXEN 1/3 SCHW.   KG      2,690      1,408       3,79      1        3,79  B      2,690
+                           BC GTIN:  94004951888761 LOT-Nr: 0440260891
+                           MHD: 261010
+   742793.3 94004951888815 REGIO SW-PFOTEN IM BEUTEL       KG      2,190      2,544       5,57      1        5,57  B      2,190
+                           BC GTIN:  94004951888815 LOT-Nr: 0340260891
+                           MHD: 261008
+ **** Tiefkühl ****
+   043866.3 4337182248842  2,5kg MC ERBSEN SEHR FEIN       BT      6,790          1       6,79      4       27,16  B      4,790 *
+ --------------------------------------------------------------------------------------------------------------------------------------
+                           Mengenrabatt - 0,50 DPG PET COCA-COLA                                           136,80- A      52525
+                           Mengenrabatt 2,5kg MC ERBSEN SEHR FEIN                                            8,00- B      41269
+                           Mengenrabatt 10l ARO ALLES REINIGER                                               2,40- A      33242
+                           Mengenrabatt - 0,50 DPG FL VIO MEDIUM                                             3,60- A      32404
+                           Mengenrabatt - MPRO GN DECKEL 1/6 EDS M AUSSP                                     1,75- A      01552
+                           Mengenrabatt - MPRO GN DECKEL 1/4 EDS                                             1,05- A      01689
+ --------------------------------------------------------------------------------------------------------------------------------------
+ KOLLI GES.:  71           KOLLI GEW.:  21,308 KG                                NETTO-WARENWERT:         764,60
+                                                                                    NETTOWERT  % MWST        MWST       BRUTTO
+                                                                                     405,78  A=19,00%      77,10      482,88
+                                                                                     226,82  B= 7,00%      15,88      242,70
+                                                                      LEERGUT:       132,00  A=19,00%      25,08      157,08
+                                                                                 --------------------------------------------
+                                                                                     764,60               118,06      882,66
+                                                                                           SUMME EUR        882,66

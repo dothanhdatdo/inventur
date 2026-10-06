@@ -37,10 +37,12 @@ METRO_LINE = re.compile(
 )
 METRO_MHD = re.compile(r"MHD:\s*(\d{6})")
 METRO_NUMBER = re.compile(r"RECHNUNGS-NR\.\s+(\S+)")
-METRO_DATE = re.compile(r"RECHNUNGSDATUM:\s+(\d{2}\.\d{2}\.\d{4})")
+METRO_DATE = re.compile(r"(?:RECHNUNGSDATUM|BELEGDATUM):\s+(\d{2}\.\d{2}\.\d{4})")
 METRO_STORE = re.compile(r"^\s*METRO Deutschland GmbH\s{2,}(\S[^\n]*?)\s{2,}", re.M)
 METRO_SECTION = re.compile(r"^\*{4} ?([^*]+?) ?\*{4}$")
 METRO_NET = re.compile(r"NETTO-WARENWERT:\s+([\d.]*\d,\d{2})")
+# Bảng VAT cuối hoá đơn: "405,78  A=19,00%  77,10  482,88" (dòng "LEERGUT:" là tiền cọc vỏ, không tính).
+METRO_VAT_ROW = re.compile(r"^\s*([\d.]*\d,\d{2})\s+([AB])=\s*\d+,\d+%\s+([\d.]*\d,\d{2})\s+[\d.]*\d,\d{2}\s*$")
 MAX_LINE = 400  # dòng dài bất thường -> bỏ qua (tránh regex chạy quá lâu với PDF lạ)
 VAT_CLASS = {"A": 19.0, "B": 7.0}
 # Nhóm hàng trên hoá đơn METRO -> nhóm trong kho (quyết định cả khu Bếp/Quầy khi tạo nguyên liệu mới).
@@ -95,9 +97,10 @@ def parse_metro(text: str) -> ParsedInvoice | None:
             unit_price = to_float(g["unit_price"])
             piece_price = to_float(g["piece_price"])
             units = qty * per_pack  # số đơn vị lẻ (hàng cân "KG": INHALT là số kg)
-            # Có giảm giá -> STÜCK PREIS thấp hơn đơn giá; thành tiền thật = số đơn vị × giá sau giảm.
+            # Có giảm giá (Mengenrabatt) -> STÜCK PREIS thấp hơn đơn giá. Tiền giảm = số đơn vị × mức giảm mỗi đơn vị
+            # (trừ vào cột GESAMT, vì GESAMT tính từ giá kiện đã làm tròn – vd. 12 × 0,991 = 11,89).
             if piece_price < unit_price - 1e-9 and units:
-                total = round(units * piece_price, 2)
+                total = round(total - round(units * (unit_price - piece_price), 2), 2)
             if g["pack"] == "KG":
                 # Hàng cân (thịt, cá...): số lượng = số kg thật, đơn giá = €/kg -> gắn vào nguyên liệu "kg" là đúng ngay.
                 quantity, per_unit = round(units, 3), 1.0
@@ -131,6 +134,18 @@ def parse_metro(text: str) -> ParsedInvoice | None:
     subtotal = round(sum(line.total for line in lines), 2)
     vat = round(sum(line.total * line.vat_rate / 100 for line in lines), 2)
     warnings = []
+    vat_rows = [METRO_VAT_ROW.match(raw) for raw in text.splitlines() if "LEERGUT" not in raw]
+    vat_rows = [m for m in vat_rows if m]
+    if vat_rows:  # VAT in trên hoá đơn chính xác hơn tự tính từng dòng
+        vat = round(sum(to_float(m.group(3)) for m in vat_rows), 2)
+        for m in vat_rows:
+            rate = VAT_CLASS[m.group(2)]
+            net = round(sum(line.total for line in lines if line.vat_rate == rate), 2)
+            if abs(net - to_float(m.group(1))) > 0.05:
+                warnings.append(
+                    f"Tiền hàng VAT {rate:g} % đọc được ({_eur(net)}) khác hoá đơn ({_eur(to_float(m.group(1)))}) "
+                    "– hãy so lại với file PDF."
+                )
     printed = METRO_NET.search(text)
     if printed and abs(subtotal + deposit - to_float(printed.group(1))) > 0.05:
         # Có dòng không đọc được (vd. trả hàng, storno) -> báo để người dùng so lại với PDF.

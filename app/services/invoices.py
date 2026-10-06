@@ -234,8 +234,6 @@ def confirm(session: Session, invoice: Invoice) -> list[str]:
             session.flush()
             notes.append(f"Đã tạo nhà cung cấp mới: {supplier.name}")
         invoice.supplier_id = supplier.id
-    when = datetime.combine(invoice.invoice_date, time(9, 0)) if invoice.invoice_date else datetime.now()
-    ref = f"HĐ #{invoice.id}" + (f" ({invoice.invoice_number})" if invoice.invoice_number else "")
     unlinked: list[str] = []
     # Chốt chặn: dòng đã nhập kho ở bản khác của cùng hoá đơn (vd. hai phiếu nháp của cùng một PDF) không nhập lần nữa,
     # trừ khi người dùng đã chủ động giữ lại dòng bị đánh dấu trùng (KEPT).
