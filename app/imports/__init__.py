@@ -215,7 +215,7 @@ def apply_full_invoice(session: Session, module) -> str:
         for ing in created:
             session.delete(ing)
         session.commit()
-        return f"{label.capitalize()} đã có trong kho (đã nhập trước đó) – không nhập lại"
+        return f"Hoá đơn METRO {when:%d.%m.%Y} đã có trong kho (đã nhập trước đó) – không nhập lại"
     invoice.confirmed_at = when
     for batch in session.scalars(select(Batch).where(Batch.invoice_id == invoice.id)):
         batch.received_at = when

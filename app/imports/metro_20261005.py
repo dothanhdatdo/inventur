@@ -23,9 +23,11 @@ DEPOSIT = 132.00
 # số đơn vị kho / 1 đơn vị trên hoá đơn, ngưỡng tối thiểu, mức tồn chuẩn, khu.
 # Coca-Cola / Coca-Cola Zero đã có từ hoá đơn 19.09 -> dùng lại (theo tên hàng METRO đã nhớ).
 ITEMS = {
-    "butter": ("Bơ / Butter mild gesalzen 250g", "Đồ mát / Mopro", "kg", "thùng", 10, 10, 2.5, 10, KITCHEN),
-    "vio": ("Nước khoáng / Vio Medium 0,5l", "Nước / Wasser", "chai", "két", 18, 18, 18, 36, BAR),
-    "vio_sparkling": ("Nước khoáng có ga / Vio Spritzig 0,5l", "Nước / Wasser", "chai", "két", 18, 18, 18, 36, BAR),
+    # "BUTTER MILD GES." = mildgesäuert (Deutsche Markenbutter, không muối), thùng 40 × 250 g.
+    "butter": ("Bơ / Butter mildgesäuert 250g", "Đồ mát / Mopro", "kg", "thùng", 10, 10, 2.5, 10, KITCHEN),
+    # "0,50 DPG FL VIO" = ViO Still (EAN 4100590122475); "VIO MEDIUM" trên dòng Mengenrabatt chỉ là tên khuyến mãi.
+    "vio": ("Nước khoáng không ga / ViO Still 0,5l", "Nước / Wasser", "chai", "lốc", 18, 18, 18, 36, BAR),
+    "vio_sparkling": ("Nước khoáng có ga / ViO Spritzig 0,5l", "Nước / Wasser", "chai", "lốc", 18, 18, 18, 36, BAR),
     "coke_zero": ("Coca-Cola Zero 0,5l", "Nước ngọt / Softdrinks", "chai", "thùng", 12, 12, 24, 108, BAR),
     "coke": ("Coca-Cola 0,5l", "Nước ngọt / Softdrinks", "chai", "thùng", 12, 12, 24, 132, BAR),
     "cleaner": ("Nước lau đa năng / Allzweckreiniger 10l", "Vệ sinh / Drogerie", "can", "", 1, 1, 1, 3, KITCHEN),

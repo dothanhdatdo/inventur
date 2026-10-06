@@ -132,10 +132,10 @@ def test_metro2_import_after_first_metro_import(db):
     assert duck.area == "kitchen" and duck.unit == "kg" and abs(stock.stock_of(db, duck.id) - 4.843) < 1e-9
     batches = db.scalars(select(Batch).where(Batch.ingredient_id == duck.id)).all()
     assert {b.expiry_date for b in batches} == {date(2026, 10, 9)} and all(b.received_at.day == 5 for b in batches)
-    butter = _ing(db, "Bơ / Butter mild gesalzen 250g")
+    butter = _ing(db, "Bơ / Butter mildgesäuert 250g")
     assert stock.stock_of(db, butter.id) == 20 and abs(butter.last_price - 4.44) < 1e-9
-    assert stock.stock_of(db, _ing(db, "Nước khoáng có ga / Vio Spritzig 0,5l").id) == 36
-    assert _ing(db, "Nước khoáng có ga / Vio Spritzig 0,5l").area == "bar"
+    assert stock.stock_of(db, _ing(db, "Nước khoáng có ga / ViO Spritzig 0,5l").id) == 36
+    assert _ing(db, "Nước khoáng có ga / ViO Spritzig 0,5l").area == "bar"
     assert stock.stock_of(db, _ing(db, "Đậu Hà Lan / Erbsen sehr fein (TK)").id) == 10
     assert stock.stock_of(db, _ing(db, "Nước lau đa năng / Allzweckreiniger 10l").id) == 3
     assert not db.scalars(select(Ingredient).where(Ingredient.name.like("%DECKEL%"))).all()  # dụng cụ: không vào kho
@@ -186,7 +186,7 @@ def test_metro2_import_skips_invoice_the_user_already_scanned(client, db, monkey
     before = stock.stock_map(db)
     ingredients_before = db.scalar(select(func.count(Ingredient.id)))
     note = imports.apply_full_invoice(db, metro2)
-    assert "đã có trong kho" in note
+    assert note.startswith("Hoá đơn METRO 05.10.2026 đã có trong kho")
     db.expire_all()
     assert stock.stock_map(db) == before and db.scalar(select(func.count(Ingredient.id))) == ingredients_before
     assert db.scalar(select(func.count(Invoice.id)).where(Invoice.invoice_number == metro2.INVOICE_NUMBER)) == 1
@@ -250,3 +250,9 @@ def test_failing_import_does_not_break_startup(db, monkeypatch):
     assert not db.scalars(select(Supplier).where(Supplier.name == "half-written")).all()  # đã rollback
     assert not alerts.get_setting(db, "import_" + metro2.KEY)  # lần sau thử lại
     assert alerts.get_setting(db, "import_" + metro.KEY)  # hoá đơn khác vẫn nhập bình thường
+
+
+def test_metro2_item_names():
+    names = {spec[0] for spec in metro2.ITEMS.values()}
+    assert "Nước khoáng không ga / ViO Still 0,5l" in names  # "0,50 DPG FL VIO" là nước không ga
+    assert not any("gesalzen" in n or "Medium" in n for n in names)
