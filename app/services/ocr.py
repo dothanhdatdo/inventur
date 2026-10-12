@@ -185,6 +185,17 @@ async def _post_json(url: str, headers: dict, payload: dict) -> tuple[int, str]:
     return resp.status_code, resp.text
 
 
+def _anthropic_supports_effort(model: str) -> bool:
+    """output_config.effort chỉ có trên Claude Opus 4.5, các model 4.6+ và thế hệ 5 (Haiku 4.5 / Sonnet 4.5 báo lỗi)."""
+    m = re.match(r"claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2}))?(?:\b|-)", model or "")
+    if not m:
+        return False
+    family, major, minor = m.group(1), int(m.group(2)), int(m.group(3) or 0)
+    if family in ("fable", "mythos") or major >= 5:
+        return True
+    return major == 4 and (minor >= 6 or (family == "opus" and minor == 5))
+
+
 async def _call_anthropic(content: bytes, media_type: str, settings: dict) -> dict:
     if not settings["anthropic_key"]:
         raise OcrError("Thiếu Anthropic API key")
@@ -195,9 +206,12 @@ async def _call_anthropic(content: bytes, media_type: str, settings: dict) -> di
         file_block = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
     payload = {
         "model": settings["anthropic_model"],
-        "max_tokens": 4096,
+        # Model mới tự suy nghĩ trước khi trả lời và phần đó tính vào max_tokens -> chừa đủ chỗ cho hoá đơn dài.
+        "max_tokens": 16000,
         "messages": [{"role": "user", "content": [file_block, {"type": "text", "text": PROMPT}]}],
     }
+    if _anthropic_supports_effort(settings["anthropic_model"]):
+        payload["output_config"] = {"effort": "low"}  # chép số liệu từ hoá đơn: không cần suy nghĩ sâu, nhanh và rẻ hơn
     headers = {
         "x-api-key": settings["anthropic_key"],
         "anthropic-version": "2023-06-01",
@@ -209,6 +223,10 @@ async def _call_anthropic(content: bytes, media_type: str, settings: dict) -> di
     if status != 200:
         raise OcrError(f"Anthropic API lỗi {status}: {body[:300]}")
     data = json.loads(body)
+    if data.get("stop_reason") == "refusal":
+        raise OcrError("Claude từ chối đọc file này. Hãy thử ảnh khác hoặc dùng Google Gemini")
+    if data.get("stop_reason") == "max_tokens":
+        raise OcrError("Hoá đơn quá dài, câu trả lời của Claude bị cắt. Hãy chụp/tải từng trang riêng")
     text = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
     return _parse_json(text)
 

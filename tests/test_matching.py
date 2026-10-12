@@ -108,3 +108,49 @@ def test_provider_ready_requires_key():
     assert ocr.provider_ready(_gemini_settings()) is True
     assert ocr.provider_ready(_gemini_settings(gemini_key="")) is False
     assert ocr.provider_ready(_gemini_settings(provider="demo")) is False
+
+
+def _anthropic_settings(model="claude-sonnet-5-5"):
+    return {"provider": "anthropic", "anthropic_key": "sk-ant-x", "anthropic_model": model, "openai_key": "",
+            "openai_model": "", "gemini_key": "", "gemini_model": "gemini-flash-latest"}
+
+
+def test_claude_request_leaves_room_for_thinking_and_uses_low_effort(monkeypatch):
+    sent = []
+    reply = {"stop_reason": "end_turn", "content": [
+        {"type": "thinking", "thinking": ""},  # model mới có thể trả về khối thinking trước
+        {"type": "text", "text": json.dumps({"supplier": "METRO", "lines": [
+            {"name": "Reis", "quantity": 1, "unit": "Sack", "unit_price": 30, "total": 30, "vat_rate": 7}]})},
+    ]}
+
+    async def fake_post(url, headers, payload):
+        sent.append((url, headers, payload))
+        return 200, json.dumps(reply)
+
+    monkeypatch.setattr(ocr, "_post_json", fake_post)
+    parsed = asyncio.run(ocr.extract_invoice(b"\xff\xd8\xff", "image/jpeg", _anthropic_settings()))
+    assert parsed.source == "anthropic" and parsed.lines[0].name == "Reis"
+    url, headers, payload = sent[0]
+    assert url == "https://api.anthropic.com/v1/messages" and headers["x-api-key"] == "sk-ant-x"
+    assert payload["model"] == "claude-sonnet-5-5" and payload["max_tokens"] == 16000
+    assert payload["output_config"] == {"effort": "low"}
+    assert "thinking" not in payload and "temperature" not in payload  # tham số cũ bị model mới từ chối
+
+
+@pytest.mark.parametrize("model, expected", [
+    ("claude-sonnet-5-5", True), ("claude-opus-5-5", True), ("claude-haiku-5-5", True), ("claude-fable-5-1", True),
+    ("claude-sonnet-4-6", True), ("claude-opus-4-5", True), ("claude-haiku-4-5", False),
+    ("claude-haiku-4-5-20251001", False), ("claude-sonnet-4-5", False), ("claude-3-5-sonnet-latest", False), ("", False),
+])
+def test_effort_only_for_models_that_support_it(model, expected):
+    assert ocr._anthropic_supports_effort(model) is expected
+
+
+@pytest.mark.parametrize("stop_reason, needle", [("refusal", "từ chối"), ("max_tokens", "quá dài")])
+def test_claude_stop_reasons_give_clear_messages(monkeypatch, stop_reason, needle):
+    async def fake_post(url, headers, payload):
+        return 200, json.dumps({"stop_reason": stop_reason, "content": [{"type": "text", "text": '{"lines": ['}]})
+
+    monkeypatch.setattr(ocr, "_post_json", fake_post)
+    with pytest.raises(ocr.OcrError, match=needle):
+        asyncio.run(ocr.extract_invoice(b"\xff\xd8\xff", "image/jpeg", _anthropic_settings("claude-haiku-4-5")))
